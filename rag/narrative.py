@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -12,12 +13,27 @@ You are given a chronological list of facts, each tagged with a citation
 marker like [1], [2]. Write a clear, chronological narrative answering the
 user's question, in your own words.
 
-Rules:
-- Every factual claim must end with its citation marker(s), e.g.
-  "...argued for GCP's pricing [1]."
+CRITICAL RULE: every single factual claim in your answer MUST end with its
+citation marker, written as [1], [2] etc, directly in the sentence -- not
+listed separately at the end. A sentence describing a fact with no bracket
+number after it is not acceptable.
+
+Example -- given these facts:
+[1] 2023-01-15 -- Priya ARGUED_AGAINST AWS ("AWS bill hit $40k")
+[2] 2023-03-20 -- Marcus ADVOCATED_FOR GCP ("auth service PoC on GCP")
+
+Correct answer (note the bracket after EVERY claim, inline, not at the end):
+"In January 2023, Priya raised concerns about AWS costs after the bill hit
+$40k [1]. By March, Marcus was advocating for GCP following a successful
+auth service proof-of-concept [2]."
+
+Incorrect answer (facts stated with no inline markers -- NEVER do this):
+"Priya raised concerns about AWS costs. Marcus later advocated for GCP
+after a successful proof of concept."
+
+Other rules:
 - Do not invent facts not present in the provided list.
-- Write like a forensics report: neutral, precise, chronological, specific
-  about who did what and when.
+- Write like a forensics report: neutral, precise, chronological.
 - If the facts are insufficient to answer the question, say so plainly.
 """
 
@@ -71,6 +87,13 @@ def generate_narrative(question: str, records: list[dict]):
         ],
     )
     answer = response.choices[0].message.content.strip()
+
+    marker_count = len(re.findall(r"\[\d+\]", answer))
+    if marker_count == 0:
+        print("  [WARNING] Generated narrative has ZERO inline citation markers.")
+    else:
+        print(f"  [ok] Generated narrative contains {marker_count} inline citation marker(s).")
+
     return answer, citations
 
 
