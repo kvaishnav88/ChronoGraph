@@ -50,6 +50,10 @@ def parse_extraction(raw_model_output: str) -> list[dict]:
                 raise ValueError(
                     f"subject_type must be Person for action relations, got {subject_type}"
                 )
+            if object_type != "Technology":
+                raise ValueError(
+                    f"object_type must be Technology, got {object_type}"
+                )
             if not item.get("raw_excerpt"):
                 raise ValueError("missing raw_excerpt — refusing ungrounded triple")
 
