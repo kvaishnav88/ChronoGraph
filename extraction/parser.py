@@ -13,21 +13,25 @@ ALLOWED_ENTITY_TYPES = {"Person", "Technology"}
 
 
 def parse_extraction(raw_model_output: str) -> list[dict]:
-    """Turn the model's raw text response into a validated list of triple
-    dicts. Drops (doesn't crash on) individual triples that are malformed —
-    one bad triple shouldn't lose the whole message's extraction."""
     raw = raw_model_output.strip()
 
     if raw.startswith("```"):
         raw = raw.strip("`")
         if raw.lower().startswith("json"):
             raw = raw[4:]
+        raw = raw.strip()
 
-    start, end = raw.find("["), raw.rfind("]")
-    if start == -1 or end == -1:
-        raise ExtractionError(f"No JSON array found in model output: {raw[:200]}")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ExtractionError(f"Model output was not valid JSON: {e} -- raw: {raw[:200]}")
 
-    items = json.loads(raw[start : end + 1])
+    if isinstance(parsed, dict) and "triples" in parsed:
+        items = parsed["triples"]
+    elif isinstance(parsed, list):
+        items = parsed
+    else:
+        raise ExtractionError(f"Unexpected JSON shape (no 'triples' key, not a list): {raw[:200]}")
 
     valid = []
     for item in items:
@@ -42,6 +46,10 @@ def parse_extraction(raw_model_output: str) -> list[dict]:
                 raise ValueError(f"bad object_type: {object_type}")
             if predicate not in ALLOWED_RELATIONS:
                 raise ValueError(f"bad predicate: {predicate}")
+            if subject_type != "Person":
+                raise ValueError(
+                    f"subject_type must be Person for action relations, got {subject_type}"
+                )
             if not item.get("raw_excerpt"):
                 raise ValueError("missing raw_excerpt — refusing ungrounded triple")
 
