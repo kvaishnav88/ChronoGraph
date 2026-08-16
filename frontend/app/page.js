@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import GraphView from "@/components/GraphView";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -8,6 +9,7 @@ export default function Home() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -34,6 +36,7 @@ export default function Home() {
         ...prev,
         { role: "assistant", content: data.answer, citations: data.citations },
       ]);
+      setGraphData({ nodes: data.nodes, edges: data.edges });
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -48,8 +51,8 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-gray-50 p-6">
-      <div className="w-full max-w-2xl">
+    <main className="flex min-h-screen bg-gray-50 p-6 gap-6">
+      <div className="w-full max-w-xl">
         <h1 className="text-2xl font-bold mb-4 text-gray-800">ChronoGraph</h1>
 
         <div className="bg-white rounded-lg shadow p-4 mb-4 min-h-[400px] flex flex-col gap-4">
@@ -105,6 +108,11 @@ export default function Home() {
             Send
           </button>
         </div>
+      </div>
+
+      <div className="flex-1">
+        <h2 className="text-sm font-semibold text-gray-500 mb-2">GRAPH VIEW</h2>
+        <GraphView nodes={graphData.nodes} edges={graphData.edges} />
       </div>
     </main>
   );
