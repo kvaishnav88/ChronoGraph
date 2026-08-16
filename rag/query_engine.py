@@ -17,6 +17,11 @@ DATABASE = os.environ["NEO4J_DATABASE"]
 
 FORBIDDEN = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP)\b", re.IGNORECASE)
 
+ALLOWED_RELATIONS = {
+    "ADVOCATED_FOR", "ARGUED_AGAINST", "PROPOSED",
+    "COMMITTED_CODE", "BLOCKED", "RESOLVED",
+}
+
 FALLBACK_QUERY = """
 MATCH (person:Person)-[r]->(tech:Technology)
 RETURN person.name AS person, type(r) AS relation, tech.name AS technology,
@@ -24,6 +29,18 @@ RETURN person.name AS person, type(r) AS relation, tech.name AS technology,
 ORDER BY r.timestamp ASC
 LIMIT 25
 """
+
+
+def _has_invalid_relation_type(cypher: str) -> bool:
+    match = re.search(r"type\(r\)\s+IN\s+\[(.*?)\]", cypher, re.DOTALL)
+    if not match:
+        return False
+    tokens = re.findall(r'"([A-Z_]+)"', match.group(1))
+    invalid = [t for t in tokens if t not in ALLOWED_RELATIONS]
+    if invalid:
+        print(f"  [rejected Cypher, hallucinated relation type(s) {invalid}]")
+        return True
+    return False
 
 
 def question_to_cypher(question: str) -> str:
@@ -44,6 +61,9 @@ def question_to_cypher(question: str) -> str:
 
     if FORBIDDEN.search(cypher):
         print(f"  [rejected unsafe Cypher, using fallback] {cypher}")
+        return FALLBACK_QUERY
+
+    if _has_invalid_relation_type(cypher):
         return FALLBACK_QUERY
 
     return cypher

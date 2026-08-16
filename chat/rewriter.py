@@ -17,6 +17,11 @@ Rules:
 - If the follow-up question is already self-contained, return it completely unchanged.
 - Do not answer the question. Only rewrite it.
 - Do not add information that wasn't implied by the conversation.
+- ALWAYS use the short canonical name for any technology mentioned in the
+  conversation history, exactly as it appeared there (e.g. "GCP", not
+  "Google Cloud Platform"; "AWS", not "Amazon Web Services"). The graph
+  database only recognizes these short forms -- using the expanded name
+  will cause the question to match nothing.
 - Output ONLY the rewritten question, nothing else.
 
 Conversation history:
