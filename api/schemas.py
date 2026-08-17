@@ -32,3 +32,9 @@ class ChatResponse(BaseModel):
     session_id: str
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+class NaiveResult(BaseModel):
+    author: str
+    timestamp: str
+    text: str
+    score: int

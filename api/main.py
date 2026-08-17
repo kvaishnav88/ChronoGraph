@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.schemas import ChatRequest, ChatResponse, Citation, GraphNode, GraphEdge
+from api.schemas import ChatRequest, ChatResponse, Citation, GraphNode, GraphEdge, NaiveResult
 from chat.memory import get_history, add_turn
 from chat.rewriter import rewrite_question
 from rag.query_engine import retrieve
-from rag.narrative import generate_narrative
+from rag.naive_search import naive_keyword_search
 
 app = FastAPI(title="ChronoGraph API")
 
@@ -59,3 +59,8 @@ def chat(req: ChatRequest):
         nodes=nodes,
         edges=edges,
     )
+
+
+@app.post("/naive_search", response_model=list[NaiveResult])
+def naive_search(req: ChatRequest):
+    return naive_keyword_search(req.question)
