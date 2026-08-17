@@ -5,6 +5,7 @@ from api.schemas import ChatRequest, ChatResponse, Citation, GraphNode, GraphEdg
 from chat.memory import get_history, add_turn
 from chat.rewriter import rewrite_question
 from rag.query_engine import retrieve
+from rag.narrative import generate_narrative
 from rag.naive_search import naive_keyword_search
 
 app = FastAPI(title="ChronoGraph API")

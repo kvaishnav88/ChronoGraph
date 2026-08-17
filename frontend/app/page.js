@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import GraphView from "@/components/GraphView";
+import NaiveCompare from "@/components/NaiveCompare";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -85,6 +86,10 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              )}
+
+              {msg.role === "assistant" && messages[i - 1] && (
+                <NaiveCompare question={messages[i - 1].content} />
               )}
             </div>
           ))}
