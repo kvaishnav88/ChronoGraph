@@ -45,7 +45,7 @@ def _has_invalid_relation_type(cypher: str) -> bool:
 
 def question_to_cypher(question: str) -> str:
     response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=os.getenv("GROQ_MODEL"),
         messages=[
             {"role": "system", "content": NL_TO_CYPHER_SYSTEM_PROMPT},
             {"role": "user", "content": NL_TO_CYPHER_USER_TEMPLATE.format(question=question)},

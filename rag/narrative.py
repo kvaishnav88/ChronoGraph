@@ -79,7 +79,7 @@ def generate_narrative(question: str, records: list[dict]):
     facts_block = build_facts_block(records, marker_by_source)
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=os.getenv("GROQ_MODEL"),
         messages=[
             {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
             {"role": "user", "content": NARRATIVE_USER_TEMPLATE.format(
