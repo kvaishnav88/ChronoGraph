@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import ChatRequest, ChatResponse, Citation, GraphNode, GraphEdge, NaiveResult
@@ -7,6 +7,8 @@ from chat.rewriter import rewrite_question
 from rag.query_engine import retrieve
 from rag.narrative import generate_narrative
 from rag.naive_search import naive_keyword_search
+from neo4j.exceptions import ServiceUnavailable
+from groq import APIConnectionError, APITimeoutError, APIStatusError
 
 app = FastAPI(title="ChronoGraph API")
 
@@ -42,25 +44,45 @@ def build_graph(records: list[dict]):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    history = get_history(req.session_id)
-    question = rewrite_question(req.question, history)
-    if question != req.question:
-        print(f"  [rewritten] {req.question!r} -> {question!r}")
+    try:
+        history = get_history(req.session_id)
 
-    records = retrieve(question)
-    answer, citations = generate_narrative(question, records)
-    nodes, edges = build_graph(records)
+        question = rewrite_question(req.question, history)
 
-    add_turn(req.session_id, req.question, answer)
+        if question != req.question:
+            print(f"  [rewritten] {req.question!r} -> {question!r}")
 
-    return ChatResponse(
-        answer=answer,
-        citations=[Citation(**c) for c in citations],
-        session_id=req.session_id,
-        nodes=nodes,
-        edges=edges,
-    )
+        records = retrieve(question)
+        answer, citations = generate_narrative(question, records)
+        nodes, edges = build_graph(records)
 
+        add_turn(req.session_id, req.question, answer)
+
+        return ChatResponse(
+            answer=answer,
+            citations=[Citation(**c) for c in citations],
+            session_id=req.session_id,
+            nodes=nodes,
+            edges=edges,
+        )
+
+    except ServiceUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="Graph database is unavailable",
+        )
+
+    except (APIConnectionError, APITimeoutError):
+        raise HTTPException(
+            status_code=503,
+            detail="LLM service is temporarily unavailable",
+        )
+
+    except APIStatusError:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM service returned an error",
+        )
 
 @app.post("/naive_search", response_model=list[NaiveResult])
 def naive_search(req: ChatRequest):
