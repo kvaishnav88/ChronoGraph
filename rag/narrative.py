@@ -128,19 +128,98 @@ def generate_narrative(question: str, records: list[dict]):
         )
 
     citations, marker_by_source = build_citations(records)
+    facts_block = build_facts_block(records, marker_by_source)
 
-    facts_block = build_facts_block(
-        records,
-        marker_by_source,
+    # First generation
+    answer = generate_llm_narrative(question, facts_block)
+
+    validation = validate_citations(
+        answer,
+        citations,
+    )
+
+    if validation["valid"]:
+        print("  [ok] Citation integrity check passed.")
+        return answer, citations
+
+    print("  [retry] Regenerating narrative because citation integrity failed.")
+
+    if validation["invalid_markers"]:
+        print(
+            f"  [WARNING] Invalid citation marker(s): "
+            f"{validation['invalid_markers']}"
+        )
+
+    if validation["unused_citations"]:
+        print(
+            f"  [WARNING] Unused citation(s): "
+            f"{validation['unused_citations']}"
+        )
+
+    # Retry once with stronger citation instructions
+    retry_prompt = (
+        NARRATIVE_USER_TEMPLATE.format(
+            question=question,
+            facts_block=facts_block,
+        )
+        + "\n\n"
+        "IMPORTANT CITATION REQUIREMENTS:\n"
+        "1. Every factual claim must have an inline citation.\n"
+        "2. Use only citation markers that exist in the supplied facts.\n"
+        "3. Do not invent citation markers.\n"
+        "4. Use every supplied citation marker at least once when "
+        "its corresponding fact is relevant to the answer.\n"
+        "5. Keep the answer chronological and concise.\n"
     )
 
     response = client.chat.completions.create(
         model=os.getenv("GROQ_MODEL"),
+        temperature=0,
         messages=[
             {
                 "role": "system",
                 "content": NARRATIVE_SYSTEM_PROMPT,
             },
+            {
+                "role": "user",
+                "content": retry_prompt,
+            },
+        ],
+    )
+
+    answer = response.choices[0].message.content.strip()
+
+    # Validate the retry
+    validation = validate_citations(
+        answer,
+        citations,
+    )
+
+    if validation["valid"]:
+        print("  [ok] Citation integrity check passed after retry.")
+    else:
+        print("  [WARNING] Citation integrity check failed after retry.")
+
+        if validation["invalid_markers"]:
+            print(
+                f"  [WARNING] Invalid citation marker(s): "
+                f"{validation['invalid_markers']}"
+            )
+
+        if validation["unused_citations"]:
+            print(
+                f"  [WARNING] Unused citation(s): "
+                f"{validation['unused_citations']}"
+            )
+
+    return answer, citations
+
+def generate_llm_narrative(question: str, facts_block: str) -> str:
+    response = client.chat.completions.create(
+        model=os.getenv("GROQ_MODEL"),
+        temperature=0,
+        messages=[
+            {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": NARRATIVE_USER_TEMPLATE.format(
@@ -151,32 +230,7 @@ def generate_narrative(question: str, records: list[dict]):
         ],
     )
 
-    answer = response.choices[0].message.content.strip()
-
-    citation_check = validate_citations(
-        answer,
-        citations,
-    )
-
-    if citation_check["valid"]:
-        print("  [ok] Citation integrity check passed.")
-    else:
-        print("  [WARNING] Citation integrity check failed.")
-
-        if citation_check["invalid_markers"]:
-            print(
-                "  [WARNING] Invalid citation marker(s): "
-                f"{citation_check['invalid_markers']}"
-            )
-
-        if citation_check["unused_citations"]:
-            print(
-                "  [WARNING] Unused citation(s): "
-                f"{citation_check['unused_citations']}"
-            )
-
-    return answer, citations
-
+    return response.choices[0].message.content.strip()
 
 if __name__ == "__main__":
     from rag.query_engine import retrieve
