@@ -3,6 +3,7 @@ import re
 from dotenv import load_dotenv
 from groq import Groq
 from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
 
 from rag.prompts import NL_TO_CYPHER_SYSTEM_PROMPT, NL_TO_CYPHER_USER_TEMPLATE
 
@@ -74,7 +75,7 @@ def run_query(cypher: str) -> list[dict]:
         try:
             results = session.run(cypher)
             return [dict(record) for record in results]
-        except Exception as e:
+        except Neo4jError as e:
             print(f"  [query failed, using fallback] {e}")
             with driver.session(database=DATABASE) as fallback_session:
                 results = fallback_session.run(FALLBACK_QUERY)
