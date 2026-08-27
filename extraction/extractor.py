@@ -12,7 +12,13 @@ client = Groq(api_key=os.environ["GROQ_API_KEY"])
 MAX_RETRIES = 3
 
 
-def extract_triples(author: str, timestamp: str, text: str, model: str = "llama-3.1-8b-instant") -> list[dict]:
+def extract_triples(
+    author: str,
+    timestamp: str,
+    text: str,
+    model: str | None = None,
+) -> list[dict]:
+    model = model or os.getenv("GROQ_MODEL")
     user_prompt = EXTRACTION_USER_TEMPLATE.format(author=author, timestamp=timestamp, text=text)
 
     response = None
