@@ -51,6 +51,7 @@ def question_to_cypher(question: str) -> str:
             {"role": "system", "content": NL_TO_CYPHER_SYSTEM_PROMPT},
             {"role": "user", "content": NL_TO_CYPHER_USER_TEMPLATE.format(question=question)},
         ],
+        temperature=0,
     )
     cypher = response.choices[0].message.content.strip()
 
