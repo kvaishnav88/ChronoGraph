@@ -36,11 +36,14 @@ def _has_invalid_relation_type(cypher: str) -> bool:
     match = re.search(r"type\(r\)\s+IN\s+\[(.*?)\]", cypher, re.DOTALL)
     if not match:
         return False
+
     tokens = re.findall(r'"([A-Z_]+)"', match.group(1))
     invalid = [t for t in tokens if t not in ALLOWED_RELATIONS]
+
     if invalid:
         print(f"  [rejected Cypher, hallucinated relation type(s) {invalid}]")
         return True
+
     return False
 
 
@@ -53,6 +56,7 @@ def question_to_cypher(question: str) -> str:
         ],
         temperature=0,
     )
+
     cypher = response.choices[0].message.content.strip()
 
     if cypher.startswith("```"):
@@ -72,12 +76,18 @@ def question_to_cypher(question: str) -> str:
 
 
 def run_query(cypher: str) -> list[dict]:
+    # Prevent an empty LLM response from reaching Neo4j.
+    if not cypher or not cypher.strip():
+        print("  [query failed, using fallback] empty Cypher")
+        cypher = FALLBACK_QUERY
+
     with driver.session(database=DATABASE) as session:
         try:
             results = session.run(cypher)
             return [dict(record) for record in results]
         except Neo4jError as e:
             print(f"  [query failed, using fallback] {e}")
+
             with driver.session(database=DATABASE) as fallback_session:
                 results = fallback_session.run(FALLBACK_QUERY)
                 return [dict(record) for record in results]
@@ -92,7 +102,15 @@ def retrieve(question: str) -> list[dict]:
 if __name__ == "__main__":
     question = "Why did we switch from AWS to GCP?"
     records = retrieve(question)
+
     print(f"Question: {question}\n")
+
     for i, r in enumerate(records, start=1):
-        print(f"[{i}] {r['timestamp']} -- {r['person']} {r['relation']} {r['technology']}")
-        print(f"    source: {r['source_id']} | \"{r['excerpt']}\"")
+        print(
+            f"[{i}] {r['timestamp']} -- "
+            f"{r['person']} {r['relation']} {r['technology']}"
+        )
+        print(
+            f"    source: {r['source_id']} | "
+            f"\"{r['excerpt']}\""
+        )
