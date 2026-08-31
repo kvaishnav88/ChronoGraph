@@ -25,12 +25,13 @@ def extract_triples(
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format={"type": "json_object"},
+                 model=model,
+                 temperature=0,
+                 messages=[
+                      {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                      {"role": "user", "content": user_prompt},
+                 ],
+                 response_format={"type": "json_object"},
             )
             break
         except APIStatusError as e:

@@ -1,7 +1,7 @@
 import json
 import time
 from extraction.extractor import extract_triples
-from extraction.normalize import normalize_triples
+from extraction.normalize import normalize_triples, enforce_person_subject
 
 INPUT_PATH = "mock_messages.json"
 OUTPUT_PATH = "extracted_triples.json"
@@ -25,7 +25,8 @@ def main():
                 timestamp=msg["timestamp"],
                 text=msg["text"],
             )
-            triples = normalize_triples(triples)   # <-- this line MUST reassign triples
+            triples = normalize_triples(triples)
+            triples = enforce_person_subject(triples)  # <-- this line MUST reassign triples
 
             if not triples:
                 print("    -> no valid triples extracted")

@@ -1,7 +1,7 @@
 import os
 import json
+from datetime import date
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
 
 load_dotenv()
 
@@ -38,7 +38,7 @@ def load_triple(session, t):
         subject=t["subject"],
         object=t["object"],
         source_id=t["source_id"],
-        timestamp=t["timestamp"],
+        timestamp=date.fromisoformat(t["timestamp"]),
         source_type=t["source_type"],
         raw_excerpt=t["raw_excerpt"],
         confidence=t["confidence"],
@@ -52,6 +52,10 @@ def main():
     print(f"Loading {len(triples)} triples into Neo4j (database: {DATABASE})...\n")
 
     with driver.session(database=DATABASE) as session:
+        # Rebuild the mock graph from the current extraction so repeated
+        # pipeline runs do not retain stale relationships.
+        session.run("MATCH (n) DETACH DELETE n")
+
         for i, t in enumerate(triples, start=1):
             load_triple(session, t)
             print(f"  [{i}/{len(triples)}] {t['subject']} -{t['predicate']}-> {t['object']}")

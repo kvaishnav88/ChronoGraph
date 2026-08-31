@@ -9,6 +9,14 @@ Where RELATION_TYPE is one of: ADVOCATED_FOR, ARGUED_AGAINST, PROPOSED,
 COMMITTED_CODE, BLOCKED, RESOLVED. Every relationship has properties:
 r.timestamp, r.raw_excerpt, r.source_id, r.source_type, r.confidence.
 
+TEMPORAL RULES:
+- r.timestamp is stored as a YYYY-MM-DD string.
+- If the question asks for a date range or year, compare r.timestamp
+  using ISO date strings, for example:
+  r.timestamp >= "2023-01-01" AND r.timestamp <= "2023-12-31"
+- NEVER use datetime(...) or date(...) for r.timestamp.
+- Do not convert r.timestamp to another type.
+
 HOW TO FILTER — keep this simple, don't overthink it:
 - Identify the Technology and/or Person names mentioned or implied in the
   question (e.g. "AWS", "GCP", "Priya").

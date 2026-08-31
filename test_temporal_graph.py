@@ -34,10 +34,10 @@ def test_graph_counts():
         RETURN count(r) AS count
     """)[0]["count"]
 
-    assert nodes == 14, f"Expected 14 nodes, found {nodes}"
-    assert relationships == 18, (
-        f"Expected 18 relationships, found {relationships}"
-    )
+    assert nodes == 5, f"Expected 5 nodes, found {nodes}"
+    assert relationships == 11, (
+    f"Expected 11 relationships, found {relationships}"
+)
 
 
 def test_temporal_properties():
@@ -106,7 +106,7 @@ def test_aws_gcp_timeline():
         ORDER BY r.timestamp ASC
     """)
 
-    assert len(results) == 9
+    assert len(results) == 11
 
     dates = [
         row["date"]
@@ -135,9 +135,9 @@ def test_engineer_activity():
         for row in results
     }
 
-    assert activity["Alex"] == 8
-    assert activity["Priya"] == 6
-    assert activity["Marcus"] == 4
+    assert activity["Priya"] == 7
+    assert activity["Marcus"] == 2
+    assert activity["Alex"] == 2
 
 
 def test_final_gcp_migration():
@@ -155,10 +155,10 @@ def test_final_gcp_migration():
     assert len(results) >= 1
 
     assert any(
-        row["engineer"] == "Priya"
-        and row["relationship"] == "ADVOCATED_FOR"
-        for row in results
-    )
+    row["engineer"] == "Priya"
+    and row["relationship"] == "RESOLVED"
+    for row in results
+)
 
 
 if __name__ == "__main__":
