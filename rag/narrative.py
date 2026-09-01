@@ -16,27 +16,44 @@ You are given a chronological list of facts, each tagged with a citation
 marker like [1], [2]. Write a clear, chronological narrative answering
 the user's question, in your own words.
 
-CRITICAL RULE: every single factual claim in your answer MUST end with its
-citation marker, written as [1], [2] etc, directly in the sentence -- not
-listed separately at the end. A sentence describing a fact with no bracket
-number after it is not acceptable.
+CRITICAL CITATION RULE:
+Every factual claim in your answer that is supported by the supplied facts
+MUST end with its citation marker, written as [1], [2], etc., directly in
+the sentence.
+
+Use citation markers ONLY when the corresponding fact actually supports
+the claim. Do NOT force irrelevant citations into the answer.
+
+If the supplied facts do not contain evidence answering the user's
+specific question, say so plainly. Do not invent facts or imply that
+unrelated facts answer the question.
 
 Example -- given these facts:
 [1] 2023-01-15 -- Priya ARGUED_AGAINST AWS ("AWS bill hit $40k")
 [2] 2023-03-20 -- Marcus ADVOCATED_FOR GCP ("auth service PoC on GCP")
 
-Correct answer (note the bracket after EVERY claim, inline, not at the end):
+Correct answer:
 "In January 2023, Priya raised concerns about AWS costs after the bill hit
 $40k [1]. By March, Marcus was advocating for GCP following a successful
 auth service proof-of-concept [2]."
 
-Incorrect answer (facts stated with no inline markers -- NEVER do this):
+Incorrect answer:
 "Priya raised concerns about AWS costs. Marcus later advocated for GCP
 after a successful proof of concept."
+
+If the question asks about a topic that is NOT supported by the supplied
+facts, answer honestly. For example:
+
+"The available history does not identify any security concerns regarding
+the AWS-to-GCP migration."
+
+Do NOT attach unrelated citation markers merely because citations were
+provided.
 
 Other rules:
 - Do not invent facts not present in the provided list.
 - Write like a forensics report: neutral, precise, chronological.
+- Prefer concise answers.
 - If the facts are insufficient to answer the question, say so plainly.
 """
 
@@ -69,12 +86,17 @@ def build_citations(records: list[dict]):
 
 def validate_citations(answer: str, citations: list[dict]) -> dict:
     """
-    Validate that citation markers used in the generated answer
-    correspond to actual citations returned by the retrieval layer.
+    Validate citation integrity.
 
     Checks:
-    1. Every marker in the answer exists in the citations.
-    2. Every returned citation is used in the answer.
+    1. Every citation marker used in the answer exists in the supplied
+       citations.
+
+    Unused citations are NOT considered an error.
+
+    This is important because retrieval may return several records that
+    are relevant to the broader topic but do not directly answer the
+    user's specific question.
     """
 
     markers_in_answer = sorted(
@@ -99,7 +121,7 @@ def validate_citations(answer: str, citations: list[dict]) -> dict:
     )
 
     return {
-        "valid": not invalid_markers and not unused_citations,
+        "valid": not invalid_markers,
         "invalid_markers": invalid_markers,
         "unused_citations": unused_citations,
     }
@@ -131,7 +153,10 @@ def generate_narrative(question: str, records: list[dict]):
     facts_block = build_facts_block(records, marker_by_source)
 
     # First generation
-    answer = generate_llm_narrative(question, facts_block)
+    answer = generate_llm_narrative(
+        question,
+        facts_block,
+    )
 
     validation = validate_citations(
         answer,
@@ -142,7 +167,10 @@ def generate_narrative(question: str, records: list[dict]):
         print("  [ok] Citation integrity check passed.")
         return answer, citations
 
-    print("  [retry] Regenerating narrative because citation integrity failed.")
+    print(
+        "  [retry] Regenerating narrative because citation "
+        "integrity failed."
+    )
 
     if validation["invalid_markers"]:
         print(
@@ -152,11 +180,11 @@ def generate_narrative(question: str, records: list[dict]):
 
     if validation["unused_citations"]:
         print(
-            f"  [WARNING] Unused citation(s): "
+            f"  [INFO] Unused citation(s): "
             f"{validation['unused_citations']}"
         )
 
-    # Retry once with stronger citation instructions
+    # Retry once with stronger citation instructions.
     retry_prompt = (
         NARRATIVE_USER_TEMPLATE.format(
             question=question,
@@ -164,12 +192,15 @@ def generate_narrative(question: str, records: list[dict]):
         )
         + "\n\n"
         "IMPORTANT CITATION REQUIREMENTS:\n"
-        "1. Every factual claim must have an inline citation.\n"
+        "1. Every factual claim supported by the supplied facts must "
+        "have an inline citation.\n"
         "2. Use only citation markers that exist in the supplied facts.\n"
         "3. Do not invent citation markers.\n"
-        "4. Use every supplied citation marker at least once when "
-        "its corresponding fact is relevant to the answer.\n"
-        "5. Keep the answer chronological and concise.\n"
+        "4. Use citations only when their corresponding facts directly "
+        "support the answer.\n"
+        "5. If the supplied facts do not contain evidence answering the "
+        "question, say so plainly and do not force irrelevant citations.\n"
+        "6. Keep the answer chronological and concise.\n"
     )
 
     response = client.chat.completions.create(
@@ -189,16 +220,20 @@ def generate_narrative(question: str, records: list[dict]):
 
     answer = response.choices[0].message.content.strip()
 
-    # Validate the retry
+    # Validate the retry.
     validation = validate_citations(
         answer,
         citations,
     )
 
     if validation["valid"]:
-        print("  [ok] Citation integrity check passed after retry.")
+        print(
+            "  [ok] Citation integrity check passed after retry."
+        )
     else:
-        print("  [WARNING] Citation integrity check failed after retry.")
+        print(
+            "  [WARNING] Citation integrity check failed after retry."
+        )
 
         if validation["invalid_markers"]:
             print(
@@ -208,18 +243,25 @@ def generate_narrative(question: str, records: list[dict]):
 
         if validation["unused_citations"]:
             print(
-                f"  [WARNING] Unused citation(s): "
+                f"  [INFO] Unused citation(s): "
                 f"{validation['unused_citations']}"
             )
 
     return answer, citations
 
-def generate_llm_narrative(question: str, facts_block: str) -> str:
+
+def generate_llm_narrative(
+    question: str,
+    facts_block: str,
+) -> str:
     response = client.chat.completions.create(
         model=os.getenv("GROQ_MODEL"),
         temperature=0,
         messages=[
-            {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": NARRATIVE_SYSTEM_PROMPT,
+            },
             {
                 "role": "user",
                 "content": NARRATIVE_USER_TEMPLATE.format(
@@ -231,6 +273,7 @@ def generate_llm_narrative(question: str, facts_block: str) -> str:
     )
 
     return response.choices[0].message.content.strip()
+
 
 if __name__ == "__main__":
     from rag.query_engine import retrieve
