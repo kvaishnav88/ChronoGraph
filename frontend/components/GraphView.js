@@ -136,7 +136,7 @@ export default function GraphView({ nodes = [], edges = [] }) {
         source: e.source,
         target: e.target,
         type: "smoothstep",
-        label: e.label.replace(/_/g, " ").toLowerCase(),
+        label: `${e.label.replace(/_/g, " ").toLowerCase()} • ${e.timestamp}`,
         pathOptions: {
           offset,
           borderRadius: 12,
