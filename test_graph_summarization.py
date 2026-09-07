@@ -1,5 +1,39 @@
 from rag.narrative import build_monthly_facts
 
+def test_generate_graph_summary_returns_citations_for_empty_records():
+    from rag.narrative import generate_graph_summary
+
+    answer, citations = generate_graph_summary(
+        "Summarize the migration history",
+        [],
+    )
+
+    assert answer == (
+        "No relevant history was found in the graph for this question."
+    )
+    assert citations == []
+
+
+def test_validate_citations_rejects_unknown_summary_marker():
+    from rag.narrative import validate_citations
+
+    citations = [
+        {
+            "marker": 1,
+            "source_id": "slack-001",
+            "timestamp": "2023-01-15",
+            "excerpt": "AWS bill hit $40k",
+        }
+    ]
+
+    result = validate_citations(
+        "The migration started in January [1] and finished in July [99].",
+        citations,
+    )
+
+    assert result["valid"] is False
+    assert result["invalid_markers"] == [99]
+    
 
 def test_build_monthly_facts_groups_records_by_month():
     records = [
@@ -68,3 +102,16 @@ def test_build_monthly_facts_preserves_chronological_order():
 
 def test_build_monthly_facts_handles_empty_records():
     assert build_monthly_facts([]) == {}
+
+def test_generate_graph_summary_returns_empty_for_no_records():
+    from rag.narrative import generate_graph_summary
+
+    answer, citations = generate_graph_summary(
+        "Summarize the migration history",
+        [],
+    )
+
+    assert "No relevant history" in answer
+    assert citations == []
+
+    

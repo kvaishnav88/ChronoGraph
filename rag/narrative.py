@@ -163,6 +163,101 @@ def build_monthly_facts(records: list[dict]) -> dict[str, list[dict]]:
 
     return monthly
 
+
+def generate_graph_summary(
+    question: str,
+    records: list[dict],
+) -> tuple[str, list[dict]]:
+    """
+    Generate a chronological summary of graph evidence,
+    grouped by month.
+
+    The summary is grounded only in the supplied records.
+    """
+    if not records:
+        return (
+            "No relevant history was found in the graph for this question.",
+            [],
+        )
+
+    citations, marker_by_source = build_citations(records)
+    monthly_facts = build_monthly_facts(records)
+
+    monthly_blocks = []
+
+    for month, month_records in monthly_facts.items():
+        lines = [f"### {month}"]
+
+        for record in month_records:
+            marker = marker_by_source[record["source_id"]]
+
+            lines.append(
+                f"[{marker}] {record['timestamp']} -- "
+                f"{record['person']} {record['relation']} "
+                f"{record['technology']} "
+                f"(\"{record['excerpt']}\")"
+            )
+
+        monthly_blocks.append("\n".join(lines))
+
+    facts_block = "\n\n".join(monthly_blocks)
+
+    prompt = f"""Question: {question}
+
+Monthly chronological graph evidence:
+
+{facts_block}
+
+Write a concise forensic summary of the overall historical evolution.
+
+Requirements:
+- Organize the response chronologically by the supplied months.
+- Identify major debates, decisions, changes in position, and actions.
+- Use ONLY information contained in the supplied evidence.
+- Every factual claim must have its supporting citation marker.
+- Use only citation markers present in the evidence.
+- Do not invent facts, motivations, events, or dates.
+- Do not infer intent or causality unless explicitly supported by the evidence.
+- Do not use causal phrases such as "led to", "caused", "resulted in",
+  or "proved" unless the supplied evidence explicitly supports that relationship.
+- Distinguish clearly between an observed event and an interpretation.
+- If the evidence is insufficient, say so plainly.
+"""
+
+    response = client.chat.completions.create(
+        model=os.getenv("GROQ_MODEL"),
+        temperature=0,
+        messages=[
+            {
+                "role": "system",
+                "content": NARRATIVE_SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+    )
+
+    answer = response.choices[0].message.content.strip()
+
+    validation = validate_citations(
+        answer,
+        citations,
+    )
+
+    if not validation["valid"]:
+        print(
+            "  [WARNING] Graph summary citation validation failed."
+        )
+    else:
+        print(
+            "  [ok] Graph summary citation integrity check passed."
+        )
+
+    return answer, citations
+
+
 def generate_narrative(question: str, records: list[dict]):
     if not records:
         return (
