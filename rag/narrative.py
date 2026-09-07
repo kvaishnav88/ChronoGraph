@@ -141,6 +141,27 @@ def build_facts_block(records: list[dict], marker_by_source: dict) -> str:
 
     return "\n".join(lines)
 
+def build_monthly_facts(records: list[dict]) -> dict[str, list[dict]]:
+    """
+    Group graph evidence by calendar month while preserving
+    chronological order within each month.
+    """
+    monthly = {}
+
+    for record in sorted(
+        records,
+        key=lambda r: r["timestamp"],
+    ):
+        timestamp = record.get("timestamp")
+
+        if not timestamp:
+            continue
+
+        month = str(timestamp)[:7]
+
+        monthly.setdefault(month, []).append(record)
+
+    return monthly
 
 def generate_narrative(question: str, records: list[dict]):
     if not records:
