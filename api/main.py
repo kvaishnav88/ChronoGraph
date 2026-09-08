@@ -1,16 +1,25 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.schemas import ChatRequest, ChatResponse, Citation, GraphNode, GraphEdge, NaiveResult
+from api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    Citation,
+    GraphNode,
+    GraphEdge,
+    NaiveResult,
+)
 from chat.memory import get_history, add_turn
 from chat.rewriter import rewrite_question
 from rag.query_engine import retrieve
-from rag.narrative import generate_narrative
+from rag.narrative import generate_narrative, generate_graph_summary
 from rag.naive_search import naive_keyword_search
 from neo4j.exceptions import ServiceUnavailable
 from groq import APIConnectionError, APITimeoutError, APIStatusError
 
+
 app = FastAPI(title="ChronoGraph API")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,17 +37,34 @@ def health():
 def build_graph(records: list[dict]):
     nodes = {}
     edges = []
+
     for r in records:
         person_id = f"person:{r['person']}"
         tech_id = f"tech:{r['technology']}"
+
         if person_id not in nodes:
-            nodes[person_id] = GraphNode(id=person_id, label=r["person"], type="Person")
+            nodes[person_id] = GraphNode(
+                id=person_id,
+                label=r["person"],
+                type="Person",
+            )
+
         if tech_id not in nodes:
-            nodes[tech_id] = GraphNode(id=tech_id, label=r["technology"], type="Technology")
-        edges.append(GraphEdge(
-            source=person_id, target=tech_id,
-            label=r["relation"], timestamp=r["timestamp"],
-        ))
+            nodes[tech_id] = GraphNode(
+                id=tech_id,
+                label=r["technology"],
+                type="Technology",
+            )
+
+        edges.append(
+            GraphEdge(
+                source=person_id,
+                target=tech_id,
+                label=r["relation"],
+                timestamp=r["timestamp"],
+            )
+        )
+
     return list(nodes.values()), edges
 
 
@@ -47,20 +73,56 @@ def chat(req: ChatRequest):
     try:
         history = get_history(req.session_id)
 
-        question = rewrite_question(req.question, history)
+        question = rewrite_question(
+            req.question,
+            history,
+        )
 
         if question != req.question:
-            print(f"  [rewritten] {req.question!r} -> {question!r}")
+            print(
+                f"  [rewritten] "
+                f"{req.question!r} -> {question!r}"
+            )
 
         records = retrieve(question)
-        answer, citations = generate_narrative(question, records)
+
+        # Use community/temporal summarization for explicit
+        # summary-oriented questions.
+        if any(
+            keyword in question.lower()
+            for keyword in [
+                "summarize",
+                "summary",
+                "summarise",
+                "month by month",
+                "overall history",
+                "major debates",
+            ]
+        ):
+            answer, citations = generate_graph_summary(
+                question,
+                records,
+            )
+        else:
+            answer, citations = generate_narrative(
+                question,
+                records,
+            )
+
         nodes, edges = build_graph(records)
 
-        add_turn(req.session_id, req.question, answer)
+        add_turn(
+            req.session_id,
+            req.question,
+            answer,
+        )
 
         return ChatResponse(
             answer=answer,
-            citations=[Citation(**c) for c in citations],
+            citations=[
+                Citation(**c)
+                for c in citations
+            ],
             session_id=req.session_id,
             nodes=nodes,
             edges=edges,
@@ -84,6 +146,10 @@ def chat(req: ChatRequest):
             detail="LLM service returned an error",
         )
 
-@app.post("/naive_search", response_model=list[NaiveResult])
+
+@app.post(
+    "/naive_search",
+    response_model=list[NaiveResult],
+)
 def naive_search(req: ChatRequest):
     return naive_keyword_search(req.question)
