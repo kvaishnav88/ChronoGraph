@@ -63,3 +63,34 @@ if __name__ == "__main__":
     test_valid_question()
 
     print("All API tests passed.")
+
+
+from api.main import is_summary_question
+
+
+def test_summary_question_detection():
+    assert is_summary_question(
+        "Summarize the entire AWS to GCP migration history."
+    )
+
+    assert is_summary_question(
+        "Give me an overview of the migration."
+    )
+
+    assert is_summary_question(
+        "Show the major debates and decisions."
+    )
+
+    assert is_summary_question(
+        "Summarize it month by month."
+    )
+
+
+def test_normal_question_is_not_summary():
+    assert not is_summary_question(
+        "Who advocated for AWS?"
+    )
+
+    assert not is_summary_question(
+        "Why did Marcus change his position?"
+    )

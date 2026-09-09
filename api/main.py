@@ -67,6 +67,32 @@ def build_graph(records: list[dict]):
 
     return list(nodes.values()), edges
 
+def is_summary_question(question: str) -> bool:
+    """
+    Detect questions that explicitly request a broad historical
+    or community-level summary.
+    """
+    summary_keywords = (
+        "summarize",
+        "summarise",
+        "summary",
+        "overview",
+        "month by month",
+        "overall history",
+        "overall evolution",
+        "major debates",
+        "major decisions",
+        "entire history",
+        "complete history",
+    )
+
+    question_lower = question.lower()
+
+    return any(
+        keyword in question_lower
+        for keyword in summary_keywords
+    )
+
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
@@ -88,17 +114,7 @@ def chat(req: ChatRequest):
 
         # Use community/temporal summarization for explicit
         # summary-oriented questions.
-        if any(
-            keyword in question.lower()
-            for keyword in [
-                "summarize",
-                "summary",
-                "summarise",
-                "month by month",
-                "overall history",
-                "major debates",
-            ]
-        ):
+        if is_summary_question(question):
             answer, citations = generate_graph_summary(
                 question,
                 records,
