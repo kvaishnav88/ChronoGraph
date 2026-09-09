@@ -114,4 +114,30 @@ def test_generate_graph_summary_returns_empty_for_no_records():
     assert "No relevant history" in answer
     assert citations == []
 
-    
+
+def test_validate_citations_accepts_valid_summary_markers():
+    from rag.narrative import validate_citations
+
+    citations = [
+        {
+            "marker": 1,
+            "source_id": "slack-001",
+            "timestamp": "2023-01-15",
+            "excerpt": "AWS bill hit $40k",
+        },
+        {
+            "marker": 2,
+            "source_id": "slack-002",
+            "timestamp": "2023-02-10",
+            "excerpt": "GCP pricing looks more predictable",
+        },
+    ]
+
+    result = validate_citations(
+        "January: AWS costs were discussed [1]. "
+        "February: GCP pricing was discussed [2].",
+        citations,
+    )
+
+    assert result["valid"] is True
+    assert result["invalid_markers"] == []    
