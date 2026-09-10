@@ -89,11 +89,70 @@ def test_chat_temporal_question():
 
     print("[PASS] End-to-end temporal question")
 
+def test_chat_summary_end_to_end():
+    response = client.post(
+        "/chat",
+        json={
+            "question": (
+                "Summarize the entire AWS to GCP "
+                "migration history month by month."
+            ),
+            "session_id": "e2e-summary-test",
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    # Core API response
+    assert isinstance(data["answer"], str)
+    assert len(data["answer"]) > 0
+
+    # Summary should contain chronological evidence
+    assert "2023" in data["answer"]
+    assert "January" in data["answer"] or "2023-01" in data["answer"]
+    assert "July" in data["answer"] or "2023-07" in data["answer"]
+
+    # Citations
+    assert isinstance(data["citations"], list)
+    assert len(data["citations"]) > 0
+
+    # Graph
+    assert isinstance(data["nodes"], list)
+    assert isinstance(data["edges"], list)
+    assert len(data["nodes"]) > 0
+    assert len(data["edges"]) > 0
+
+    # Session
+    assert data["session_id"] == "e2e-summary-test"
+
+    # Citation markers should correspond to returned citations
+    citation_markers = {
+        citation["marker"]
+        for citation in data["citations"]
+    }
+
+    answer_markers = {
+        int(marker)
+        for marker in __import__("re").findall(
+            r"\[(\d+)\]",
+            data["answer"],
+        )
+    }
+
+    assert answer_markers
+    assert answer_markers.issubset(citation_markers)
+
+    print("[PASS] End-to-end graph summary")
+
+
 
 if __name__ == "__main__":
     test_health()
     test_chat_end_to_end()
     test_chat_temporal_question()
+    test_chat_summary_end_to_end()
 
     print()
     print("=== ChronoGraph E2E Backend Audit: PASSED ===")
