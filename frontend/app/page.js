@@ -2,6 +2,7 @@
 
 import GraphView from "@/components/GraphView";
 import NaiveCompare from "@/components/NaiveCompare";
+import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -118,7 +119,34 @@ export default function Home() {
                           : "rounded-xl rounded-bl-sm border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-800"
                       }
                     >
-                      {msg.content}
+                      {msg.role === "assistant" ? (
+  <ReactMarkdown
+    components={{
+      p: ({ children }) => (
+        <p className="mb-2 last:mb-0">{children}</p>
+      ),
+      strong: ({ children }) => (
+        <strong className="font-semibold text-gray-800">
+          {children}
+        </strong>
+      ),
+      ul: ({ children }) => (
+        <ul className="mb-2 list-disc space-y-1 pl-5">
+          {children}
+        </ul>
+      ),
+      ol: ({ children }) => (
+        <ol className="mb-2 list-decimal space-y-1 pl-5">
+          {children}
+        </ol>
+      ),
+    }}
+  >
+    {msg.content}
+  </ReactMarkdown>
+) : (
+  msg.content
+)}
                     </div>
 
                     {msg.citations && msg.citations.length > 0 && (
