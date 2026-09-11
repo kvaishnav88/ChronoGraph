@@ -17,17 +17,20 @@ export default function GraphView({ nodes = [], edges = [] }) {
   const [cutoffIndex, setCutoffIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
 
-  useEffect(() => {
-    setCutoffIndex(Math.max(sortedTimestamps.length - 1, 0));
-    setPlaying(false);
-  }, [sortedTimestamps]);
+  const safeCutoffIndex = Math.min(
+    cutoffIndex,
+    Math.max(sortedTimestamps.length - 1, 0)
+  );
 
   useEffect(() => {
     if (!playing) return;
 
     if (cutoffIndex >= sortedTimestamps.length - 1) {
-      setPlaying(false);
-      return;
+      const timer = setTimeout(() => {
+        setPlaying(false);
+      }, 0);
+
+      return () => clearTimeout(timer);
     }
 
     const timer = setTimeout(() => {
@@ -37,7 +40,7 @@ export default function GraphView({ nodes = [], edges = [] }) {
     return () => clearTimeout(timer);
   }, [playing, cutoffIndex, sortedTimestamps.length]);
 
-  const cutoffDate = sortedTimestamps[cutoffIndex];
+  const cutoffDate = sortedTimestamps[safeCutoffIndex];
 
   const { flowNodes, flowEdges } = useMemo(() => {
     if (!cutoffDate) {
@@ -182,7 +185,7 @@ export default function GraphView({ nodes = [], edges = [] }) {
             <p className="mt-1 text-sm font-medium text-gray-700">
               As of {cutoffDate}
               <span className="ml-2 text-xs font-normal text-gray-400">
-                Event {cutoffIndex + 1} of {sortedTimestamps.length}
+                Event {safeCutoffIndex + 1} of {sortedTimestamps.length}
               </span>
             </p>
           </div>
@@ -205,7 +208,7 @@ export default function GraphView({ nodes = [], edges = [] }) {
           type="range"
           min={0}
           max={Math.max(sortedTimestamps.length - 1, 0)}
-          value={cutoffIndex}
+          value={safeCutoffIndex}
           onChange={(e) => {
             setPlaying(false);
             setCutoffIndex(Number(e.target.value));
