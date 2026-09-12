@@ -141,6 +141,7 @@ def build_facts_block(records: list[dict], marker_by_source: dict) -> str:
 
     return "\n".join(lines)
 
+
 def build_monthly_facts(records: list[dict]) -> dict[str, list[dict]]:
     """
     Group graph evidence by calendar month while preserving
@@ -239,7 +240,14 @@ Requirements:
         ],
     )
 
-    answer = response.choices[0].message.content.strip()
+    answer = (response.choices[0].message.content or "").strip()
+
+    if not answer:
+        print(
+            "  [WARNING] Graph summary generation returned empty content; "
+            "using grounded chronological evidence."
+        )
+        answer = facts_block
 
     validation = validate_citations(
         answer,
