@@ -61,7 +61,7 @@ def build_graph(records: list[dict]):
                 source=person_id,
                 target=tech_id,
                 label=r["relation"],
-                timestamp=r["timestamp"],
+                timestamp=str(r["timestamp"]),
             )
         )
 
@@ -136,7 +136,12 @@ def chat(req: ChatRequest):
         return ChatResponse(
             answer=answer,
             citations=[
-                Citation(**c)
+                Citation(
+                    **{
+                        **c,
+                        "timestamp": str(c["timestamp"]),
+                     }
+                )
                 for c in citations
             ],
             session_id=req.session_id,
