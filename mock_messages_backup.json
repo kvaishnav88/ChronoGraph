@@ -1,0 +1,121 @@
+[
+  {
+    "id": "slack-001",
+    "source": "slack",
+    "timestamp": "2023-01-15",
+    "author": "Priya",
+    "text": "Our AWS bill hit $40k last month. I think we need to seriously look at alternatives. GCP's pricing looks a lot more predictable for our workload."
+  },
+  {
+    "id": "slack-002",
+    "source": "slack",
+    "timestamp": "2023-01-16",
+    "author": "Marcus",
+    "text": "I hear you on cost but AWS has way better support for our current Kubernetes setup. Switching clouds is a huge undertaking, not sure it's worth the risk right now."
+  },
+  {
+    "id": "jira-101",
+    "source": "jira",
+    "timestamp": "2023-02-03",
+    "author": "Priya",
+    "text": "Created ticket INFRA-101: Evaluate GCP migration feasibility. Priya assigned to investigate cost savings and migration complexity."
+  },
+  {
+    "id": "slack-003",
+    "source": "slack",
+    "timestamp": "2023-02-20",
+    "author": "Priya",
+    "text": "Finished the GCP cost analysis. We'd save roughly 30% annually. Sharing the doc in #infra-eng."
+  },
+  {
+    "id": "slack-004",
+    "source": "slack",
+    "timestamp": "2023-02-21",
+    "author": "Marcus",
+    "text": "30% is compelling, I'll admit. My concern is still the migration effort for our stateful services. That's going to eat a lot of engineering time."
+  },
+  {
+    "id": "slack-005",
+    "source": "slack",
+    "timestamp": "2023-03-05",
+    "author": "Alex",
+    "text": "Late to this thread but I agree with Marcus on migration risk. Could we do a phased approach instead of a full cutover?"
+  },
+  {
+    "id": "github-pr-42",
+    "source": "github",
+    "timestamp": "2023-03-14",
+    "author": "Priya",
+    "text": "Opened PR #42: Proof-of-concept GCP deployment for the auth service, as a low-risk first migration candidate."
+  },
+  {
+    "id": "slack-006",
+    "source": "slack",
+    "timestamp": "2023-03-20",
+    "author": "Marcus",
+    "text": "The auth service PoC on GCP actually went smoother than I expected. I'm coming around on this. Still want to see how it holds up under real load though."
+  },
+  {
+    "id": "jira-108",
+    "source": "jira",
+    "timestamp": "2023-04-10",
+    "author": "Alex",
+    "text": "Updated INFRA-101: Auth service PoC passed load testing on GCP. Recommending phased migration starting Q3."
+  },
+  {
+    "id": "slack-007",
+    "source": "slack",
+    "timestamp": "2023-04-11",
+    "author": "Marcus",
+    "text": "Alright, I'm convinced. Let's move forward with the phased migration. Good work on the PoC, Priya."
+  },
+  {
+    "id": "jira-115",
+    "source": "jira",
+    "timestamp": "2023-05-02",
+    "author": "Priya",
+    "text": "Created INFRA-115: Migration plan for auth, billing, and notifications services to GCP, phased over Q3."
+  },
+  {
+    "id": "slack-008",
+    "source": "slack",
+    "timestamp": "2023-05-15",
+    "author": "Alex",
+    "text": "Kicking off the billing service migration this week. This one has more state to worry about than auth did."
+  },
+  {
+    "id": "github-pr-58",
+    "source": "github",
+    "timestamp": "2023-06-01",
+    "author": "Alex",
+    "text": "Opened PR #58: Billing service GCP migration, including database replication strategy."
+  },
+  {
+    "id": "slack-009",
+    "source": "slack",
+    "timestamp": "2023-06-10",
+    "author": "Marcus",
+    "text": "Billing migration hit a snag with replication lag. Alex is investigating, might slip our Q3 timeline slightly."
+  },
+  {
+    "id": "slack-010",
+    "source": "slack",
+    "timestamp": "2023-06-25",
+    "author": "Alex",
+    "text": "Replication lag issue resolved by switching to a different sync strategy. Billing service migration back on track."
+  },
+  {
+    "id": "jira-130",
+    "source": "jira",
+    "timestamp": "2023-07-20",
+    "author": "Priya",
+    "text": "Closed INFRA-115: All three services (auth, billing, notifications) successfully migrated to GCP. Full cutover complete."
+  },
+  {
+    "id": "slack-011",
+    "source": "slack",
+    "timestamp": "2023-07-21",
+    "author": "Marcus",
+    "text": "Migration complete and stable for a week now. Genuinely glad we did this — the cost savings are already showing up."
+  }
+]

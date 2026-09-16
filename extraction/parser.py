@@ -13,7 +13,6 @@ ALLOWED_ENTITY_TYPES = {
 }
 
 
-# Allowed relation -> (subject_type, object_type)
 ALLOWED_RELATIONS = {
     "SUPPORTED": ("Person", "Technology"),
     "OPPOSED": ("Person", "Technology"),
@@ -36,121 +35,204 @@ ALLOWED_RELATIONS = {
 }
 
 
-def parse_extraction(raw_model_output: str) -> list[dict]:
-    raw = raw_model_output.strip()
+REQUIRED_FIELDS = {
+    "subject",
+    "subject_type",
+    "object",
+    "object_type",
+    "raw_excerpt",
+    "confidence",
+}
 
-    if raw.startswith("```"):
-        raw = raw.strip("`")
 
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
+def parse_extraction(raw_output: str) -> list[dict]:
+    """
+    Parse and validate the JSON returned by the LLM.
 
-        raw = raw.strip()
+    Accepts either:
+
+        {"triples": [...]}
+
+    or:
+
+        [...]
+
+    The LLM uses the field name `predicate`.
+    Internally we normalize it to `relation`.
+    """
 
     try:
-        parsed = json.loads(raw)
-
+        data = json.loads(raw_output)
     except json.JSONDecodeError as e:
         raise ExtractionError(
-            f"Model output was not valid JSON: {e} -- raw: {raw[:200]}"
-        )
+            f"Invalid JSON: {e}"
+        ) from e
 
-    if isinstance(parsed, dict) and "triples" in parsed:
-        items = parsed["triples"]
+    # Accept {"triples": [...]} format
+    if isinstance(data, dict):
+        if "triples" not in data:
+            raise ExtractionError(
+                "JSON object missing 'triples' field"
+            )
 
-    elif isinstance(parsed, list):
-        items = parsed
+        triples = data["triples"]
+
+    # Also accept direct [...]
+    elif isinstance(data, list):
+        triples = data
 
     else:
         raise ExtractionError(
-            "Unexpected JSON shape "
-            "(no 'triples' key, not a list): "
-            f"{raw[:200]}"
+            "Extraction output must be a JSON object or list"
         )
 
-    if not isinstance(items, list):
-        raise ExtractionError("'triples' must contain a list")
+    if not isinstance(triples, list):
+        raise ExtractionError(
+            "'triples' must be a list"
+        )
 
-    valid = []
+    validated = []
 
-    for item in items:
+    for index, triple in enumerate(triples):
+
+        if not isinstance(triple, dict):
+            raise ExtractionError(
+                f"Triple {index} must be an object"
+            )
+
+        # -------------------------------------------------
+        # Required fields
+        # -------------------------------------------------
+
+        missing = REQUIRED_FIELDS - set(triple.keys())
+
+        if missing:
+            missing_field = sorted(missing)[0]
+
+            raise ExtractionError(
+                f"Triple {index} missing field: {missing_field}"
+            )
+
+        # -------------------------------------------------
+        # predicate / relation
+        # -------------------------------------------------
+
+        predicate = triple.get("predicate")
+
+        # Also support relation if an older prompt produces it.
+        if predicate is None:
+            predicate = triple.get("relation")
+
+        if not predicate:
+            raise ExtractionError(
+                f"Triple {index} missing field: predicate"
+            )
+
+        predicate = str(predicate).strip().upper()
+
+        if predicate not in ALLOWED_RELATIONS:
+            raise ExtractionError(
+                f"Triple {index} has invalid relation: {predicate}"
+            )
+
+        # -------------------------------------------------
+        # Entity types
+        # -------------------------------------------------
+
+        subject_type = triple["subject_type"]
+        object_type = triple["object_type"]
+
+        if subject_type not in ALLOWED_ENTITY_TYPES:
+            raise ExtractionError(
+                f"Triple {index} has invalid subject_type: "
+                f"{subject_type}"
+            )
+
+        if object_type not in ALLOWED_ENTITY_TYPES:
+            raise ExtractionError(
+                f"Triple {index} has invalid object_type: "
+                f"{object_type}"
+            )
+
+        # -------------------------------------------------
+        # Relation schema
+        # -------------------------------------------------
+
+        expected_subject_type, expected_object_type = (
+            ALLOWED_RELATIONS[predicate]
+        )
+
+        if subject_type != expected_subject_type:
+            raise ExtractionError(
+                f"Triple {index} relation {predicate} requires "
+                f"subject_type={expected_subject_type}, "
+                f"got {subject_type}"
+            )
+
+        if object_type != expected_object_type:
+            raise ExtractionError(
+                f"Triple {index} relation {predicate} requires "
+                f"object_type={expected_object_type}, "
+                f"got {object_type}"
+            )
+
+        # -------------------------------------------------
+        # Values
+        # -------------------------------------------------
+
+        subject = str(triple["subject"]).strip()
+        object_name = str(triple["object"]).strip()
+        raw_excerpt = str(triple["raw_excerpt"]).strip()
+
+        if not subject:
+            raise ExtractionError(
+                f"Triple {index} has empty subject"
+            )
+
+        if not object_name:
+            raise ExtractionError(
+                f"Triple {index} has empty object"
+            )
+
+        if not raw_excerpt:
+            raise ExtractionError(
+                f"Triple {index} has empty raw_excerpt"
+            )
+
+        # -------------------------------------------------
+        # Confidence
+        # -------------------------------------------------
+
         try:
-            subject = str(item["subject"]).strip()
-            object_name = str(item["object"]).strip()
+            confidence = float(triple["confidence"])
+        except (TypeError, ValueError) as e:
+            raise ExtractionError(
+                f"Triple {index} has invalid confidence"
+            ) from e
 
-            subject_type = item["subject_type"]
-            object_type = item["object_type"]
-            predicate = item["predicate"]
-
-            if not subject:
-                raise ValueError("empty subject")
-
-            if not object_name:
-                raise ValueError("empty object")
-
-            if subject_type not in ALLOWED_ENTITY_TYPES:
-                raise ValueError(
-                    f"bad subject_type: {subject_type}"
-                )
-
-            if object_type not in ALLOWED_ENTITY_TYPES:
-                raise ValueError(
-                    f"bad object_type: {object_type}"
-                )
-
-            if predicate not in ALLOWED_RELATIONS:
-                raise ValueError(
-                    f"bad predicate: {predicate}"
-                )
-
-            expected_subject_type, expected_object_type = (
-                ALLOWED_RELATIONS[predicate]
+        if not 0 <= confidence <= 1:
+            raise ExtractionError(
+                f"Triple {index} confidence must be between 0 and 1"
             )
 
-            if subject_type != expected_subject_type:
-                raise ValueError(
-                    f"{predicate} requires subject_type "
-                    f"{expected_subject_type}, got {subject_type}"
-                )
+        # -------------------------------------------------
+        # Normalize output
+        # -------------------------------------------------
 
-            if object_type != expected_object_type:
-                raise ValueError(
-                    f"{predicate} requires object_type "
-                    f"{expected_object_type}, got {object_type}"
-                )
+        normalized = {
+            "subject": subject,
+            "subject_type": subject_type,
+            "relation": predicate,
+            "object": object_name,
+            "object_type": object_type,
+            "raw_excerpt": raw_excerpt,
+            "confidence": confidence,
+        }
 
-            raw_excerpt = item.get("raw_excerpt")
+        # Preserve optional source_id if present
+        if "source_id" in triple:
+            normalized["source_id"] = triple["source_id"]
 
-            if not raw_excerpt:
-                raise ValueError(
-                    "missing raw_excerpt — refusing ungrounded triple"
-                )
+        validated.append(normalized)
 
-            confidence = float(
-                item.get("confidence", 0.7)
-            )
-
-            if not 0.0 <= confidence <= 1.0:
-                raise ValueError(
-                    f"confidence must be between 0 and 1, got {confidence}"
-                )
-
-            valid.append(
-                {
-                    "subject": subject,
-                    "subject_type": subject_type,
-                    "predicate": predicate,
-                    "object": object_name,
-                    "object_type": object_type,
-                    "raw_excerpt": str(raw_excerpt)[:280],
-                    "confidence": confidence,
-                }
-            )
-
-        except (KeyError, ValueError, TypeError) as e:
-            print(
-                f"  [skipped malformed triple] "
-                f"{item} -- {e}"
-            )
-
-    return valid
+    return validated

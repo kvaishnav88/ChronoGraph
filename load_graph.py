@@ -58,7 +58,7 @@ def load_triple(session, triple):
     subject = triple["subject"]
     subject_type = triple["subject_type"]
 
-    predicate = triple["predicate"]
+    predicate = triple["relation"]
 
     object_name = triple["object"]
     object_type = triple["object_type"]
@@ -205,7 +205,7 @@ def main():
                 print(
                     f"  [{i}/{len(triples)}] "
                     f"{triple['subject']} "
-                    f"-{triple['predicate']}-> "
+                    f"-{triple['relation']}-> "
                     f"{triple['object']}"
                 )
 

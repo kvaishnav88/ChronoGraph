@@ -1,231 +1,276 @@
+"""
+Narrative generation for ChronoGraph.
+
+Takes graph evidence retrieved from Neo4j and turns it into a
+citation-backed natural-language answer.
+"""
+
 import os
 import re
 
 from dotenv import load_dotenv
 from groq import Groq
 
+from rag.query_engine import retrieve
+
+
 load_dotenv()
 
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+
+client = Groq(
+    api_key=os.environ["GROQ_API_KEY"]
+)
 
 
-NARRATIVE_SYSTEM_PROMPT = """You are a forensics-style narrative generator
-for an engineering team's history.
+NARRATIVE_MODEL = os.getenv(
+    "GROQ_REWRITE_MODEL",
+    os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+)
 
-You are given a chronological list of facts, each tagged with a citation
-marker like [1], [2]. Write a clear, chronological narrative answering
-the user's question, in your own words.
 
-CRITICAL CITATION RULE:
-Every factual claim in your answer that is supported by the supplied facts
-MUST end with its citation marker, written as [1], [2], etc., directly in
-the sentence.
+NARRATIVE_SYSTEM_PROMPT = """
+You are the narrative engine for ChronoGraph.
 
-Use citation markers ONLY when the corresponding fact actually supports
-the claim. Do NOT force irrelevant citations into the answer.
+ChronoGraph answers questions using evidence retrieved from a
+temporal engineering knowledge graph.
 
-If the supplied facts do not contain evidence answering the user's
-specific question, say so plainly. Do not invent facts or imply that
-unrelated facts answer the question.
+Your job is to:
+1. Answer the user's question using ONLY the supplied graph evidence.
+2. Clearly distinguish facts from interpretation.
+3. Preserve the meaning of the evidence.
+4. Use chronological information when useful.
+5. For comparison questions, discuss the evidence for each technology.
+6. For "why" questions, explain the concrete reasons supported by the graph.
+7. Do not invent facts, numbers, relationships, dates, or events.
+8. Do not claim that one technology is universally better unless the evidence
+   explicitly establishes that conclusion.
+9. Mention uncertainty or conflicting evidence when it exists.
+10. Cite every important factual claim using the supplied evidence markers.
 
-Example -- given these facts:
-[1] 2023-01-15 -- Priya ARGUED_AGAINST AWS ("AWS bill hit $40k")
-[2] 2023-03-20 -- Marcus ADVOCATED_FOR GCP ("auth service PoC on GCP")
+Citation format:
 
-Correct answer:
-"In January 2023, Priya raised concerns about AWS costs after the bill hit
-$40k [1]. By March, Marcus was advocating for GCP following a successful
-auth service proof-of-concept [2]."
+[E1]
+[E2]
+[E3]
 
-Incorrect answer:
-"Priya raised concerns about AWS costs. Marcus later advocated for GCP
-after a successful proof of concept."
+Only use citation markers that actually appear in the supplied evidence.
 
-If the question asks about a topic that is NOT supported by the supplied
-facts, answer honestly. For example:
+Do not create new citation markers.
 
-"The available history does not identify any security concerns regarding
-the AWS-to-GCP migration."
-
-Do NOT attach unrelated citation markers merely because citations were
-provided.
-
-Other rules:
-- Do not invent facts not present in the provided list.
-- Write like a forensics report: neutral, precise, chronological.
-- Prefer concise answers.
-- If the facts are insufficient to answer the question, say so plainly.
+Keep the answer concise but useful.
 """
 
 
-NARRATIVE_USER_TEMPLATE = """Question: {question}
+def _clean_text(value) -> str:
+    """Convert a value to safe display text."""
 
-Chronological facts:
-{facts_block}
-"""
+    if value is None:
+        return ""
 
-
-def build_citations(records: list[dict]):
-    citations = []
-    marker_by_source = {}
-
-    for r in records:
-        if r["source_id"] not in marker_by_source:
-            marker = len(citations) + 1
-            marker_by_source[r["source_id"]] = marker
-
-            citations.append({
-                "marker": marker,
-                "source_id": r["source_id"],
-                "timestamp": r["timestamp"],
-                "excerpt": r["excerpt"],
-            })
-
-    return citations, marker_by_source
+    return str(value).strip()
 
 
-def validate_citations(answer: str, citations: list[dict]) -> dict:
+def _build_evidence_block(records: list[dict]) -> str:
     """
-    Validate citation integrity.
-
-    Checks:
-    1. Every citation marker used in the answer exists in the supplied
-       citations.
-
-    Unused citations are NOT considered an error.
-
-    This is important because retrieval may return several records that
-    are relevant to the broader topic but do not directly answer the
-    user's specific question.
+    Convert retrieved graph records into a numbered evidence block.
     """
 
-    markers_in_answer = sorted(
-        set(int(m) for m in re.findall(r"\[(\d+)\]", answer))
-    )
+    if not records:
+        return "NO GRAPH EVIDENCE FOUND."
 
-    valid_markers = {
-        citation["marker"]
-        for citation in citations
-    }
-
-    invalid_markers = [
-        marker
-        for marker in markers_in_answer
-        if marker not in valid_markers
-    ]
-
-    used_markers = set(markers_in_answer)
-
-    unused_citations = sorted(
-        valid_markers - used_markers
-    )
-
-    return {
-        "valid": not invalid_markers,
-        "invalid_markers": invalid_markers,
-        "unused_citations": unused_citations,
-    }
-
-
-def build_facts_block(records: list[dict], marker_by_source: dict) -> str:
     lines = []
 
-    for r in records:
-        marker = marker_by_source[r["source_id"]]
+    for index, record in enumerate(records, start=1):
 
-        lines.append(
-            f"[{marker}] {r['timestamp']} -- {r['person']} "
-            f"{r['relation']} {r['technology']} "
-            f"(\"{r['excerpt']}\")"
+        marker = f"E{index}"
+
+        subject = _clean_text(
+            record.get("subject")
         )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        timestamp = _clean_text(
+            record.get("timestamp")
+        )
+
+        excerpt = _clean_text(
+            record.get("excerpt")
+            or record.get("raw_excerpt")
+        )
+
+        source_id = _clean_text(
+            record.get("source_id")
+        )
+
+        line = (
+            f"[{marker}] "
+            f"{timestamp} -- "
+            f"{subject} ({subject_type}) "
+            f"{relation} "
+            f"{object_name} ({object_type})"
+        )
+
+        if excerpt:
+            line += f' -- "{excerpt}"'
+
+        if source_id:
+            line += f" -- source: {source_id}"
+
+        lines.append(line)
 
     return "\n".join(lines)
 
-def build_monthly_facts(records: list[dict]) -> dict[str, list[dict]]:
+
+def build_facts_block(records: list[dict]) -> str:
     """
-    Group graph evidence by calendar month while preserving
-    chronological order within each month.
+    Public helper used to format graph evidence for the LLM.
     """
-    monthly = {}
 
-    for record in sorted(
-        records,
-        key=lambda r: r["timestamp"],
-    ):
-        timestamp = record.get("timestamp")
-
-        if not timestamp:
-            continue
-
-        month = str(timestamp)[:7]
-
-        monthly.setdefault(month, []).append(record)
-
-    return monthly
+    return _build_evidence_block(records)
 
 
-def generate_graph_summary(
+def _extract_citations(text: str) -> set[str]:
+    """Extract citation markers such as E1, E2, E10."""
+
+    if not text:
+        return set()
+
+    return set(
+        re.findall(
+            r"\[E(\d+)\]",
+            text,
+        )
+    )
+
+
+def _validate_citations(
+    answer: str,
+    records: list[dict],
+) -> bool:
+    """
+    Ensure every citation in the answer refers to supplied evidence.
+    """
+
+    cited = _extract_citations(answer)
+
+    if not cited:
+        return False
+
+    valid = {
+        str(index)
+        for index in range(
+            1,
+            len(records) + 1,
+        )
+    }
+
+    return cited.issubset(valid)
+
+
+def _remove_invalid_citations(
+    answer: str,
+    records: list[dict],
+) -> str:
+    """Remove citation markers that do not exist in the evidence."""
+
+    valid = {
+        str(index)
+        for index in range(
+            1,
+            len(records) + 1,
+        )
+    }
+
+    def replace(match):
+        number = match.group(1)
+
+        if number in valid:
+            return f"[E{number}]"
+
+        return ""
+
+    return re.sub(
+        r"\[E(\d+)\]",
+        replace,
+        answer,
+    )
+
+
+def _build_user_prompt(
     question: str,
     records: list[dict],
-) -> tuple[str, list[dict]]:
+) -> str:
     """
-    Generate a chronological summary of graph evidence,
-    grouped by month.
-
-    The summary is grounded only in the supplied records.
+    Build the final prompt sent to the narrative model.
     """
-    if not records:
-        return (
-            "No relevant history was found in the graph for this question.",
-            [],
-        )
 
-    citations, marker_by_source = build_citations(records)
-    monthly_facts = build_monthly_facts(records)
+    evidence = _build_evidence_block(
+        records
+    )
 
-    monthly_blocks = []
+    return f"""
+USER QUESTION:
+{question}
 
-    for month, month_records in monthly_facts.items():
-        lines = [f"### {month}"]
+GRAPH EVIDENCE:
+{evidence}
 
-        for record in month_records:
-            marker = marker_by_source[record["source_id"]]
+INSTRUCTIONS:
 
-            lines.append(
-                f"[{marker}] {record['timestamp']} -- "
-                f"{record['person']} {record['relation']} "
-                f"{record['technology']} "
-                f"(\"{record['excerpt']}\")"
-            )
+Answer the user's question using the graph evidence above.
 
-        monthly_blocks.append("\n".join(lines))
+For comparisons:
+- Discuss the evidence for both sides.
+- Include advantages, disadvantages, risks, metrics, and relevant human
+  positions when available.
+- Do not omit conflicting evidence.
+- Do not produce an overall ranking.
 
-    facts_block = "\n\n".join(monthly_blocks)
+For "why" questions:
+- Explain the concrete reasons supported by the evidence.
+- Connect reasons to the relevant technology.
+- Use dates when they help explain the engineering history.
 
-    prompt = f"""Question: {question}
+For alternatives:
+- Identify technologies explicitly connected through ALTERNATIVE_TO.
+- Also mention relevant evidence about those technologies.
 
-Monthly chronological graph evidence:
+Every important factual statement should have one or more citations such as
+[E1] or [E3].
 
-{facts_block}
+Do not cite evidence that does not support the statement.
 
-Write a concise forensic summary of the overall historical evolution.
-
-Requirements:
-- Organize the response chronologically by the supplied months.
-- Identify major debates, decisions, changes in position, and actions.
-- Use ONLY information contained in the supplied evidence.
-- Every factual claim must have its supporting citation marker.
-- Use only citation markers present in the evidence.
-- Do not invent facts, motivations, events, or dates.
-- Do not infer intent or causality unless explicitly supported by the evidence.
-- Do not use causal phrases such as "led to", "caused", "resulted in",
-  or "proved" unless the supplied evidence explicitly supports that relationship.
-- Distinguish clearly between an observed event and an interpretation.
-- If the evidence is insufficient, say so plainly.
+Return only the final answer.
 """
 
+
+def _call_narrative_model(
+    question: str,
+    records: list[dict],
+) -> str:
+
+    prompt = _build_user_prompt(
+        question,
+        records,
+    )
+
     response = client.chat.completions.create(
-        model=os.getenv("GROQ_MODEL"),
+        model=NARRATIVE_MODEL,
         temperature=0,
         messages=[
             {
@@ -239,181 +284,354 @@ Requirements:
         ],
     )
 
-    answer = response.choices[0].message.content.strip()
-
-    validation = validate_citations(
-        answer,
-        citations,
+    return (
+        response
+        .choices[0]
+        .message
+        .content
+        .strip()
     )
 
-    if not validation["valid"]:
-        print(
-            "  [WARNING] Graph summary citation validation failed."
-        )
-    else:
-        print(
-            "  [ok] Graph summary citation integrity check passed."
-        )
 
-    return answer, citations
+def generate_narrative(
+    question: str,
+    records: list[dict] | None = None,
+) -> str:
+    """
+    Generate a citation-backed answer.
 
+    If records are not supplied, retrieve them from Neo4j.
+    """
 
-def generate_narrative(question: str, records: list[dict]):
+    if records is None:
+        records = retrieve(question)
+
     if not records:
         return (
-            "No relevant history was found in the graph for this question.",
-            [],
+            "I could not find relevant evidence in the "
+            "ChronoGraph knowledge graph."
         )
 
-    citations, marker_by_source = build_citations(records)
-    facts_block = build_facts_block(records, marker_by_source)
+    try:
+        answer = _call_narrative_model(
+            question,
+            records,
+        )
 
-    # First generation
-    answer = generate_llm_narrative(
-        question,
-        facts_block,
-    )
+    except Exception as e:
+        print(
+            f"[narrative generation failed] {e}"
+        )
 
-    validation = validate_citations(
+        # Provide a deterministic fallback instead of crashing the API.
+        return _deterministic_answer(
+            question,
+            records,
+        )
+
+    # Remove citations that the model invented.
+    answer = _remove_invalid_citations(
         answer,
-        citations,
-    )
-
-    if validation["valid"]:
-        print("  [ok] Citation integrity check passed.")
-        return answer, citations
-
-    print(
-        "  [retry] Regenerating narrative because citation "
-        "integrity failed."
-    )
-
-    if validation["invalid_markers"]:
-        print(
-            f"  [WARNING] Invalid citation marker(s): "
-            f"{validation['invalid_markers']}"
-        )
-
-    if validation["unused_citations"]:
-        print(
-            f"  [INFO] Unused citation(s): "
-            f"{validation['unused_citations']}"
-        )
-
-    # Retry once with stronger citation instructions.
-    retry_prompt = (
-        NARRATIVE_USER_TEMPLATE.format(
-            question=question,
-            facts_block=facts_block,
-        )
-        + "\n\n"
-        "IMPORTANT CITATION REQUIREMENTS:\n"
-        "1. Every factual claim supported by the supplied facts must "
-        "have an inline citation.\n"
-        "2. Use only citation markers that exist in the supplied facts.\n"
-        "3. Do not invent citation markers.\n"
-        "4. Use citations only when their corresponding facts directly "
-        "support the answer.\n"
-        "5. If the supplied facts do not contain evidence answering the "
-        "question, say so plainly and do not force irrelevant citations.\n"
-        "6. Keep the answer chronological and concise.\n"
-    )
-
-    response = client.chat.completions.create(
-        model=os.getenv("GROQ_MODEL"),
-        temperature=0,
-        messages=[
-            {
-                "role": "system",
-                "content": NARRATIVE_SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": retry_prompt,
-            },
-        ],
-    )
-
-    answer = response.choices[0].message.content.strip()
-
-    # Validate the retry.
-    validation = validate_citations(
-        answer,
-        citations,
-    )
-
-    if validation["valid"]:
-        print(
-            "  [ok] Citation integrity check passed after retry."
-        )
-    else:
-        print(
-            "  [WARNING] Citation integrity check failed after retry."
-        )
-
-        if validation["invalid_markers"]:
-            print(
-                f"  [WARNING] Invalid citation marker(s): "
-                f"{validation['invalid_markers']}"
-            )
-
-        if validation["unused_citations"]:
-            print(
-                f"  [INFO] Unused citation(s): "
-                f"{validation['unused_citations']}"
-            )
-
-    return answer, citations
-
-
-def generate_llm_narrative(
-    question: str,
-    facts_block: str,
-) -> str:
-    response = client.chat.completions.create(
-        model=os.getenv("GROQ_MODEL"),
-        temperature=0,
-        messages=[
-            {
-                "role": "system",
-                "content": NARRATIVE_SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": NARRATIVE_USER_TEMPLATE.format(
-                    question=question,
-                    facts_block=facts_block,
-                ),
-            },
-        ],
-    )
-
-    return response.choices[0].message.content.strip()
-
-
-if __name__ == "__main__":
-    from rag.query_engine import retrieve
-
-    question = "Why did we switch from AWS to GCP?"
-
-    records = retrieve(question)
-
-    answer, citations = generate_narrative(
-        question,
         records,
     )
 
-    print(f"Question: {question}\n")
-
-    print("Answer:")
-    print(answer)
-
-    print("\nSources:")
-
-    for citation in citations:
-        print(
-            f"[{citation['marker']}] "
-            f"{citation['timestamp']} -- "
-            f"{citation['source_id']}: "
-            f"\"{citation['excerpt']}\""
+    # If the model produced no usable citations,
+    # fall back to a deterministic evidence answer.
+    if not _validate_citations(
+        answer,
+        records,
+    ):
+        return _deterministic_answer(
+            question,
+            records,
         )
+
+    return answer
+
+
+def _deterministic_answer(
+    question: str,
+    records: list[dict],
+) -> str:
+    """
+    Deterministic fallback.
+
+    This guarantees that the API can still return a useful
+    answer if the narrative LLM fails.
+    """
+
+    if not records:
+        return (
+            "No relevant graph evidence was found."
+        )
+
+    question_lower = question.lower()
+
+    technologies = {}
+
+    for index, record in enumerate(
+        records,
+        start=1,
+    ):
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        if subject_type == "Technology":
+
+            if subject not in technologies:
+                technologies[subject] = []
+
+            technologies[subject].append(
+                {
+                    "relation": relation,
+                    "object": object_name,
+                    "object_type": object_type,
+                    "citation": f"[E{index}]",
+                }
+            )
+
+        if object_type == "Technology":
+
+            if object_name not in technologies:
+                technologies[object_name] = []
+
+    # Comparison
+    if (
+        "compare" in question_lower
+        or "comparison" in question_lower
+    ):
+
+        sections = []
+
+        for technology in sorted(
+            technologies.keys()
+        ):
+
+            evidence = technologies[
+                technology
+            ]
+
+            if not evidence:
+                continue
+
+            items = []
+
+            for item in evidence[:8]:
+
+                relation = item["relation"]
+                object_name = item["object"]
+                citation = item["citation"]
+
+                items.append(
+                    f"- {relation.replace('_', ' ').title()}: "
+                    f"{object_name} {citation}"
+                )
+
+            sections.append(
+                f"**{technology}**\n"
+                + "\n".join(items)
+            )
+
+        if sections:
+            return (
+                "The graph contains the following evidence "
+                "for the technologies being compared:\n\n"
+                + "\n\n".join(sections)
+            )
+
+    # Why question
+    if (
+        "why" in question_lower
+        or "reason" in question_lower
+    ):
+
+        relevant = []
+
+        for index, record in enumerate(
+            records,
+            start=1,
+        ):
+
+            relation = _clean_text(
+                record.get("relation")
+            )
+
+            if relation in {
+                "HAS_ADVANTAGE",
+                "HAS_DISADVANTAGE",
+                "HAS_RISK",
+                "HAS_BENEFIT",
+                "HAS_METRIC",
+            }:
+
+                subject = _clean_text(
+                    record.get("subject")
+                )
+
+                object_name = _clean_text(
+                    record.get("object")
+                )
+
+                relevant.append(
+                    f"- {subject}: "
+                    f"{relation.replace('_', ' ').title()} "
+                    f"{object_name} [E{index}]"
+                )
+
+        if relevant:
+            return (
+                "The graph provides these reasons and "
+                "related evidence:\n\n"
+                + "\n".join(relevant[:12])
+            )
+
+    # Generic fallback
+    lines = []
+
+    for index, record in enumerate(
+        records[:15],
+        start=1,
+    ):
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        lines.append(
+            f"- {subject} "
+            f"{relation.replace('_', ' ').lower()} "
+            f"{object_name} [E{index}]"
+        )
+
+    return (
+        "Relevant graph evidence:\n\n"
+        + "\n".join(lines)
+    )
+
+
+def generate_graph_summary(
+    records: list[dict],
+) -> str:
+    """
+    Generate a compact summary of graph evidence.
+
+    Used by the API to summarize the retrieved graph.
+    """
+
+    if not records:
+        return (
+            "No relevant graph evidence was found."
+        )
+
+    technologies = set()
+    people = set()
+    reasons = set()
+    metrics = set()
+
+    for record in records:
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        if subject_type == "Technology":
+            technologies.add(subject)
+
+        elif subject_type == "Person":
+            people.add(subject)
+
+        elif subject_type == "Reason":
+            reasons.add(subject)
+
+        elif subject_type == "Metric":
+            metrics.add(subject)
+
+        if object_type == "Technology":
+            technologies.add(object_name)
+
+        elif object_type == "Reason":
+            reasons.add(object_name)
+
+        elif object_type == "Metric":
+            metrics.add(object_name)
+
+        elif object_type == "Person":
+            people.add(object_name)
+
+    parts = []
+
+    if technologies:
+        parts.append(
+            "Technologies: "
+            + ", ".join(
+                sorted(technologies)
+            )
+        )
+
+    if people:
+        parts.append(
+            "People: "
+            + ", ".join(
+                sorted(people)
+            )
+        )
+
+    if reasons:
+        parts.append(
+            "Reasons: "
+            + ", ".join(
+                sorted(reasons)
+            )
+        )
+
+    if metrics:
+        parts.append(
+            "Metrics: "
+            + ", ".join(
+                sorted(metrics)
+            )
+        )
+
+    parts.append(
+        f"Evidence relationships: {len(records)}"
+    )
+
+    return "\n".join(parts)
