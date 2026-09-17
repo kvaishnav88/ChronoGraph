@@ -9,9 +9,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://127.0.0.1:8000";
-
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 function newSessionId() {
   return `session-${Date.now()}-${Math.random()
     .toString(36)
@@ -59,10 +57,7 @@ export default function DashboardPage() {
     nodes: [],
     edges: [],
   });
-
-  const [sessionId, setSessionId] = useState(() =>
-    newSessionId()
-  );
+const [sessionId, setSessionId] = useState("");
 
   const [activeIndex, setActiveIndex] = useState(null);
   const [backendStatus, setBackendStatus] =
