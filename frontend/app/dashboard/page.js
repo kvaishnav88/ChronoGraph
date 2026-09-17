@@ -57,7 +57,7 @@ export default function DashboardPage() {
     nodes: [],
     edges: [],
   });
-const [sessionId, setSessionId] = useState("");
+const [sessionId, setSessionId] = useState("default");
 
   const [activeIndex, setActiveIndex] = useState(null);
   const [backendStatus, setBackendStatus] =
