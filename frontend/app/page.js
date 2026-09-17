@@ -2,16 +2,40 @@
 
 import GraphView from "@/components/GraphView";
 import NaiveCompare from "@/components/NaiveCompare";
+import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import ReactMarkdown from "react-markdown";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 const API_URL = "http://127.0.0.1:8000";
+
+function newSessionId() {
+  return `session-${Date.now()}`;
+}
 
 export default function Home() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [sessionId, setSessionId] = useState(() => newSessionId());
+  const [activeIndex, setActiveIndex] = useState(null);
+
+  const messageRefs = useRef([]);
+
+  function scrollToMessage(index) {
+    setActiveIndex(index);
+    messageRefs.current[index]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  function startNewChat() {
+    setMessages([]);
+    setGraphData({ nodes: [], edges: [] });
+    setActiveIndex(null);
+    setSessionId(newSessionId());
+  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -27,7 +51,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          session_id: "web-session-1",
+          session_id: sessionId,
         }),
       });
 
@@ -65,7 +89,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-4 sm:px-6">
-      <div className="mx-auto max-w-[1600px]">
+      <div className="mx-auto max-w-[1800px]">
         {/* Header */}
         <header className="mb-4">
           <h1 className="text-2xl font-bold tracking-tight text-gray-800">
@@ -76,7 +100,17 @@ export default function Home() {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,0.8fr)_minmax(650px,1.7fr)]">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[240px_minmax(360px,0.8fr)_minmax(650px,1.7fr)]">
+          {/* History sidebar */}
+          <section className="min-w-0 xl:h-[680px]">
+            <ChatHistorySidebar
+              messages={messages}
+              activeIndex={activeIndex}
+              onSelect={scrollToMessage}
+              onNewChat={startNewChat}
+            />
+          </section>
+
           {/* Chat panel */}
           <section className="min-w-0">
             <div className="flex min-h-[620px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -106,10 +140,14 @@ export default function Home() {
                 {messages.map((msg, i) => (
                   <div
                     key={i}
+                    ref={(el) => (messageRefs.current[i] = el)}
                     className={
-                      msg.role === "user"
+                      (msg.role === "user"
                         ? "ml-auto max-w-[88%]"
-                        : "mr-auto max-w-[96%]"
+                        : "mr-auto max-w-[96%]") +
+                      (activeIndex === i
+                        ? " ring-2 ring-blue-300 rounded-xl"
+                        : "")
                     }
                   >
                     <div
@@ -120,33 +158,33 @@ export default function Home() {
                       }
                     >
                       {msg.role === "assistant" ? (
-  <ReactMarkdown
-    components={{
-      p: ({ children }) => (
-        <p className="mb-2 last:mb-0">{children}</p>
-      ),
-      strong: ({ children }) => (
-        <strong className="font-semibold text-gray-800">
-          {children}
-        </strong>
-      ),
-      ul: ({ children }) => (
-        <ul className="mb-2 list-disc space-y-1 pl-5">
-          {children}
-        </ul>
-      ),
-      ol: ({ children }) => (
-        <ol className="mb-2 list-decimal space-y-1 pl-5">
-          {children}
-        </ol>
-      ),
-    }}
-  >
-    {msg.content}
-  </ReactMarkdown>
-) : (
-  msg.content
-)}
+                        <ReactMarkdown
+                          components={{
+                            p: ({ children }) => (
+                              <p className="mb-2 last:mb-0">{children}</p>
+                            ),
+                            strong: ({ children }) => (
+                              <strong className="font-semibold text-gray-800">
+                                {children}
+                              </strong>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="mb-2 list-disc space-y-1 pl-5">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="mb-2 list-decimal space-y-1 pl-5">
+                                {children}
+                              </ol>
+                            ),
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      ) : (
+                        msg.content
+                      )}
                     </div>
 
                     {msg.citations && msg.citations.length > 0 && (
@@ -189,9 +227,7 @@ export default function Home() {
                     className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && sendMessage()
-                    }
+                    onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                     placeholder="Ask about your team's history..."
                   />
 
@@ -220,10 +256,7 @@ export default function Home() {
               </div>
             </div>
 
-            <GraphView
-              nodes={graphData.nodes}
-              edges={graphData.edges}
-            />
+            <GraphView nodes={graphData.nodes} edges={graphData.edges} />
           </section>
         </div>
       </div>
