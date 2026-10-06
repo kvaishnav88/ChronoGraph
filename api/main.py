@@ -1,6 +1,7 @@
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from api.limits import chat_guard
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import (
@@ -37,8 +38,9 @@ allowed_origins = [
 ]
 
 if frontend_url:
-    allowed_origins.append(frontend_url)
-
+    allowed_origins += [
+        u.strip().rstrip("/") for u in frontend_url.split(",") if u.strip()
+    ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -282,9 +284,10 @@ def normalize_citations(citations):
 # CHAT
 # ---------------------------------------------------------
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_guard)])
 def chat(req: ChatRequest):
-
+    if len(req.question) > 500:
+        raise HTTPException(status_code=413, detail="Question is too long (500 characters max).")
     try:
 
         # ---------------------------------------------

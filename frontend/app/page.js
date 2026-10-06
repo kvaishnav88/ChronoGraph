@@ -1,4 +1,5 @@
 import Link from "next/link";
+import remarkGfm from "remark-gfm";
 
 const architecture = [
   {
