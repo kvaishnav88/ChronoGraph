@@ -1,112 +1,637 @@
+"""
+Narrative generation for ChronoGraph.
+
+Takes graph evidence retrieved from Neo4j and turns it into a
+citation-backed natural-language answer.
+"""
+
 import os
 import re
+
 from dotenv import load_dotenv
 from groq import Groq
 
+from rag.query_engine import retrieve
+
+
 load_dotenv()
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
-NARRATIVE_SYSTEM_PROMPT = """You are a forensics-style narrative generator
-for an engineering team's history.
 
-You are given a chronological list of facts, each tagged with a citation
-marker like [1], [2]. Write a clear, chronological narrative answering the
-user's question, in your own words.
+client = Groq(
+    api_key=os.environ["GROQ_API_KEY"]
+)
 
-CRITICAL RULE: every single factual claim in your answer MUST end with its
-citation marker, written as [1], [2] etc, directly in the sentence -- not
-listed separately at the end. A sentence describing a fact with no bracket
-number after it is not acceptable.
 
-Example -- given these facts:
-[1] 2023-01-15 -- Priya ARGUED_AGAINST AWS ("AWS bill hit $40k")
-[2] 2023-03-20 -- Marcus ADVOCATED_FOR GCP ("auth service PoC on GCP")
+NARRATIVE_MODEL = os.getenv(
+    "GROQ_REWRITE_MODEL",
+    os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+)
 
-Correct answer (note the bracket after EVERY claim, inline, not at the end):
-"In January 2023, Priya raised concerns about AWS costs after the bill hit
-$40k [1]. By March, Marcus was advocating for GCP following a successful
-auth service proof-of-concept [2]."
 
-Incorrect answer (facts stated with no inline markers -- NEVER do this):
-"Priya raised concerns about AWS costs. Marcus later advocated for GCP
-after a successful proof of concept."
+NARRATIVE_SYSTEM_PROMPT = """
+You are the narrative engine for ChronoGraph.
 
-Other rules:
-- Do not invent facts not present in the provided list.
-- Write like a forensics report: neutral, precise, chronological.
-- If the facts are insufficient to answer the question, say so plainly.
+ChronoGraph answers questions using evidence retrieved from a
+temporal engineering knowledge graph.
+
+Your job is to:
+1. Answer the user's question using ONLY the supplied graph evidence.
+2. Clearly distinguish facts from interpretation.
+3. Preserve the meaning of the evidence.
+4. Use chronological information when useful.
+5. For comparison questions, discuss the evidence for each technology.
+6. For "why" questions, explain the concrete reasons supported by the graph.
+7. Do not invent facts, numbers, relationships, dates, or events.
+8. Do not claim that one technology is universally better unless the evidence
+   explicitly establishes that conclusion.
+9. Mention uncertainty or conflicting evidence when it exists.
+10. Cite every important factual claim using the supplied evidence markers.
+
+Citation format:
+
+[E1]
+[E2]
+[E3]
+
+Only use citation markers that actually appear in the supplied evidence.
+
+Do not create new citation markers.
+
+Keep the answer concise but useful.
 """
 
-NARRATIVE_USER_TEMPLATE = """Question: {question}
 
-Chronological facts:
-{facts_block}
-"""
+def _clean_text(value) -> str:
+    """Convert a value to safe display text."""
 
+    if value is None:
+        return ""
 
-def build_citations(records: list[dict]):
-    citations = []
-    marker_by_source = {}
-    for r in records:
-        if r["source_id"] not in marker_by_source:
-            marker = len(citations) + 1
-            marker_by_source[r["source_id"]] = marker
-            citations.append({
-                "marker": marker,
-                "source_id": r["source_id"],
-                "timestamp": r["timestamp"],
-                "excerpt": r["excerpt"],
-            })
-    return citations, marker_by_source
+    return str(value).strip()
 
 
-def build_facts_block(records: list[dict], marker_by_source: dict) -> str:
+def _build_evidence_block(records: list[dict]) -> str:
+    """
+    Convert retrieved graph records into a numbered evidence block.
+    """
+
+    if not records:
+        return "NO GRAPH EVIDENCE FOUND."
+
     lines = []
-    for r in records:
-        marker = marker_by_source[r["source_id"]]
-        lines.append(
-            f"[{marker}] {r['timestamp']} -- {r['person']} {r['relation']} "
-            f"{r['technology']} (\"{r['excerpt']}\")"
+
+    for index, record in enumerate(records, start=1):
+
+        marker = f"E{index}"
+
+        subject = _clean_text(
+            record.get("subject")
         )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        timestamp = _clean_text(
+            record.get("timestamp")
+        )
+
+        excerpt = _clean_text(
+            record.get("excerpt")
+            or record.get("raw_excerpt")
+        )
+
+        source_id = _clean_text(
+            record.get("source_id")
+        )
+
+        line = (
+            f"[{marker}] "
+            f"{timestamp} -- "
+            f"{subject} ({subject_type}) "
+            f"{relation} "
+            f"{object_name} ({object_type})"
+        )
+
+        if excerpt:
+            line += f' -- "{excerpt}"'
+
+        if source_id:
+            line += f" -- source: {source_id}"
+
+        lines.append(line)
+
     return "\n".join(lines)
 
 
-def generate_narrative(question: str, records: list[dict]):
-    if not records:
-        return "No relevant history was found in the graph for this question.", []
+def build_facts_block(records: list[dict]) -> str:
+    """
+    Public helper used to format graph evidence for the LLM.
+    """
 
-    citations, marker_by_source = build_citations(records)
-    facts_block = build_facts_block(records, marker_by_source)
+    return _build_evidence_block(records)
+
+
+def _extract_citations(text: str) -> set[str]:
+    """Extract citation markers such as E1, E2, E10."""
+
+    if not text:
+        return set()
+
+    return set(
+        re.findall(
+            r"\[E(\d+)\]",
+            text,
+        )
+    )
+
+
+def _validate_citations(
+    answer: str,
+    records: list[dict],
+) -> bool:
+    """
+    Ensure every citation in the answer refers to supplied evidence.
+    """
+
+    cited = _extract_citations(answer)
+
+    if not cited:
+        return False
+
+    valid = {
+        str(index)
+        for index in range(
+            1,
+            len(records) + 1,
+        )
+    }
+
+    return cited.issubset(valid)
+
+
+def _remove_invalid_citations(
+    answer: str,
+    records: list[dict],
+) -> str:
+    """Remove citation markers that do not exist in the evidence."""
+
+    valid = {
+        str(index)
+        for index in range(
+            1,
+            len(records) + 1,
+        )
+    }
+
+    def replace(match):
+        number = match.group(1)
+
+        if number in valid:
+            return f"[E{number}]"
+
+        return ""
+
+    return re.sub(
+        r"\[E(\d+)\]",
+        replace,
+        answer,
+    )
+
+
+def _build_user_prompt(
+    question: str,
+    records: list[dict],
+) -> str:
+    """
+    Build the final prompt sent to the narrative model.
+    """
+
+    evidence = _build_evidence_block(
+        records
+    )
+
+    return f"""
+USER QUESTION:
+{question}
+
+GRAPH EVIDENCE:
+{evidence}
+
+INSTRUCTIONS:
+
+Answer the user's question using the graph evidence above.
+
+For comparisons:
+- Discuss the evidence for both sides.
+- Include advantages, disadvantages, risks, metrics, and relevant human
+  positions when available.
+- Do not omit conflicting evidence.
+- Do not produce an overall ranking.
+
+For "why" questions:
+- Explain the concrete reasons supported by the evidence.
+- Connect reasons to the relevant technology.
+- Use dates when they help explain the engineering history.
+
+For alternatives:
+- Identify technologies explicitly connected through ALTERNATIVE_TO.
+- Also mention relevant evidence about those technologies.
+
+Every important factual statement should have one or more citations such as
+[E1] or [E3].
+
+Do not cite evidence that does not support the statement.
+
+Return only the final answer.
+"""
+
+
+def _call_narrative_model(
+    question: str,
+    records: list[dict],
+) -> str:
+
+    prompt = _build_user_prompt(
+        question,
+        records,
+    )
 
     response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model=NARRATIVE_MODEL,
+        temperature=0,
         messages=[
-            {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
-            {"role": "user", "content": NARRATIVE_USER_TEMPLATE.format(
-                question=question, facts_block=facts_block)},
+            {
+                "role": "system",
+                "content": NARRATIVE_SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
         ],
     )
-    answer = response.choices[0].message.content.strip()
 
-    marker_count = len(re.findall(r"\[\d+\]", answer))
-    if marker_count == 0:
-        print("  [WARNING] Generated narrative has ZERO inline citation markers.")
-    else:
-        print(f"  [ok] Generated narrative contains {marker_count} inline citation marker(s).")
+    return (
+        response
+        .choices[0]
+        .message
+        .content
+        .strip()
+    )
 
-    return answer, citations
+
+def generate_narrative(
+    question: str,
+    records: list[dict] | None = None,
+) -> str:
+    """
+    Generate a citation-backed answer.
+
+    If records are not supplied, retrieve them from Neo4j.
+    """
+
+    if records is None:
+        records = retrieve(question)
+
+    if not records:
+        return (
+            "I could not find relevant evidence in the "
+            "ChronoGraph knowledge graph."
+        )
+
+    try:
+        answer = _call_narrative_model(
+            question,
+            records,
+        )
+
+    except Exception as e:
+        print(
+            f"[narrative generation failed] {e}"
+        )
+
+        # Provide a deterministic fallback instead of crashing the API.
+        return _deterministic_answer(
+            question,
+            records,
+        )
+
+    # Remove citations that the model invented.
+    answer = _remove_invalid_citations(
+        answer,
+        records,
+    )
+
+    # If the model produced no usable citations,
+    # fall back to a deterministic evidence answer.
+    if not _validate_citations(
+        answer,
+        records,
+    ):
+        return _deterministic_answer(
+            question,
+            records,
+        )
+
+    return answer
 
 
-if __name__ == "__main__":
-    from rag.query_engine import retrieve
+def _deterministic_answer(
+    question: str,
+    records: list[dict],
+) -> str:
+    """
+    Deterministic fallback.
 
-    question = "Why did we switch from AWS to GCP?"
-    records = retrieve(question)
-    answer, citations = generate_narrative(question, records)
+    This guarantees that the API can still return a useful
+    answer if the narrative LLM fails.
+    """
 
-    print(f"Question: {question}\n")
-    print("Answer:")
-    print(answer)
-    print("\nSources:")
-    for c in citations:
-        print(f"[{c['marker']}] {c['timestamp']} -- {c['source_id']}: \"{c['excerpt']}\"")
+    if not records:
+        return (
+            "No relevant graph evidence was found."
+        )
+
+    question_lower = question.lower()
+
+    technologies = {}
+
+    for index, record in enumerate(
+        records,
+        start=1,
+    ):
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        if subject_type == "Technology":
+
+            if subject not in technologies:
+                technologies[subject] = []
+
+            technologies[subject].append(
+                {
+                    "relation": relation,
+                    "object": object_name,
+                    "object_type": object_type,
+                    "citation": f"[E{index}]",
+                }
+            )
+
+        if object_type == "Technology":
+
+            if object_name not in technologies:
+                technologies[object_name] = []
+
+    # Comparison
+    if (
+        "compare" in question_lower
+        or "comparison" in question_lower
+    ):
+
+        sections = []
+
+        for technology in sorted(
+            technologies.keys()
+        ):
+
+            evidence = technologies[
+                technology
+            ]
+
+            if not evidence:
+                continue
+
+            items = []
+
+            for item in evidence[:8]:
+
+                relation = item["relation"]
+                object_name = item["object"]
+                citation = item["citation"]
+
+                items.append(
+                    f"- {relation.replace('_', ' ').title()}: "
+                    f"{object_name} {citation}"
+                )
+
+            sections.append(
+                f"**{technology}**\n"
+                + "\n".join(items)
+            )
+
+        if sections:
+            return (
+                "The graph contains the following evidence "
+                "for the technologies being compared:\n\n"
+                + "\n\n".join(sections)
+            )
+
+    # Why question
+    if (
+        "why" in question_lower
+        or "reason" in question_lower
+    ):
+
+        relevant = []
+
+        for index, record in enumerate(
+            records,
+            start=1,
+        ):
+
+            relation = _clean_text(
+                record.get("relation")
+            )
+
+            if relation in {
+                "HAS_ADVANTAGE",
+                "HAS_DISADVANTAGE",
+                "HAS_RISK",
+                "HAS_BENEFIT",
+                "HAS_METRIC",
+            }:
+
+                subject = _clean_text(
+                    record.get("subject")
+                )
+
+                object_name = _clean_text(
+                    record.get("object")
+                )
+
+                relevant.append(
+                    f"- {subject}: "
+                    f"{relation.replace('_', ' ').title()} "
+                    f"{object_name} [E{index}]"
+                )
+
+        if relevant:
+            return (
+                "The graph provides these reasons and "
+                "related evidence:\n\n"
+                + "\n".join(relevant[:12])
+            )
+
+    # Generic fallback
+    lines = []
+
+    for index, record in enumerate(
+        records[:15],
+        start=1,
+    ):
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        relation = _clean_text(
+            record.get("relation")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        lines.append(
+            f"- {subject} "
+            f"{relation.replace('_', ' ').lower()} "
+            f"{object_name} [E{index}]"
+        )
+
+    return (
+        "Relevant graph evidence:\n\n"
+        + "\n".join(lines)
+    )
+
+
+def generate_graph_summary(
+    records: list[dict],
+) -> str:
+    """
+    Generate a compact summary of graph evidence.
+
+    Used by the API to summarize the retrieved graph.
+    """
+
+    if not records:
+        return (
+            "No relevant graph evidence was found."
+        )
+
+    technologies = set()
+    people = set()
+    reasons = set()
+    metrics = set()
+
+    for record in records:
+
+        subject = _clean_text(
+            record.get("subject")
+        )
+
+        subject_type = _clean_text(
+            record.get("subject_type")
+        )
+
+        object_name = _clean_text(
+            record.get("object")
+        )
+
+        object_type = _clean_text(
+            record.get("object_type")
+        )
+
+        if subject_type == "Technology":
+            technologies.add(subject)
+
+        elif subject_type == "Person":
+            people.add(subject)
+
+        elif subject_type == "Reason":
+            reasons.add(subject)
+
+        elif subject_type == "Metric":
+            metrics.add(subject)
+
+        if object_type == "Technology":
+            technologies.add(object_name)
+
+        elif object_type == "Reason":
+            reasons.add(object_name)
+
+        elif object_type == "Metric":
+            metrics.add(object_name)
+
+        elif object_type == "Person":
+            people.add(object_name)
+
+    parts = []
+
+    if technologies:
+        parts.append(
+            "Technologies: "
+            + ", ".join(
+                sorted(technologies)
+            )
+        )
+
+    if people:
+        parts.append(
+            "People: "
+            + ", ".join(
+                sorted(people)
+            )
+        )
+
+    if reasons:
+        parts.append(
+            "Reasons: "
+            + ", ".join(
+                sorted(reasons)
+            )
+        )
+
+    if metrics:
+        parts.append(
+            "Metrics: "
+            + ", ".join(
+                sorted(metrics)
+            )
+        )
+
+    parts.append(
+        f"Evidence relationships: {len(records)}"
+    )
+
+    return "\n".join(parts)

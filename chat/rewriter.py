@@ -41,7 +41,7 @@ def rewrite_question(question: str, history: list[dict]) -> str:
     )
 
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=os.getenv("GROQ_REWRITE_MODEL"),
         temperature=0,
         messages=[{"role": "user", "content": REWRITE_PROMPT.format(
             history_text=history_text, question=question

@@ -1,124 +1,390 @@
-"use client";
+import Link from "next/link";
+import remarkGfm from "remark-gfm";
 
-import { useState } from "react";
-import GraphView from "@/components/GraphView";
-import NaiveCompare from "@/components/NaiveCompare";
+const architecture = [
+  {
+    number: "01",
+    title: "INGESTION",
+    description:
+      "Enterprise messages and historical records enter the ChronoGraph pipeline.",
+  },
+  {
+    number: "02",
+    title: "EXTRACTION",
+    description:
+      "People, technologies, reasons, metrics and relationships are extracted from evidence.",
+  },
+  {
+    number: "03",
+    title: "GRAPH",
+    description:
+      "Entities and temporal relationships are represented inside the Neo4j knowledge graph.",
+  },
+  {
+    number: "04",
+    title: "RETRIEVAL",
+    description:
+      "Natural-language questions are transformed into graph queries for targeted evidence retrieval.",
+  },
+  {
+    number: "05",
+    title: "NARRATIVE",
+    description:
+      "Retrieved evidence is synthesized into an answer with supporting citations and graph context.",
+  },
+];
 
-const API_URL = "http://127.0.0.1:8000";
+const technologies = [
+  "NEXT.JS",
+  "REACT",
+  "FASTAPI",
+  "PYTHON",
+  "NEO4J",
+  "GROQ",
+  "GRAPHRAG",
+  "CYPHER",
+];
 
-export default function Home() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
-
-  async function sendMessage() {
-    if (!input.trim() || loading) return;
-
-    const question = input;
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setLoading(true);
-
-    try {
-      const res = await fetch(`${API_URL}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, session_id: "web-session-1" }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
-      }
-
-      const data = await res.json();
-
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.answer, citations: data.citations },
-      ]);
-      setGraphData({ nodes: data.nodes, edges: data.edges });
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Error: could not reach the backend. Is it running? (${err.message})`,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
+export default function LandingPage() {
   return (
-    <main className="flex min-h-screen bg-gray-50 p-6 gap-6">
-      <div className="w-full max-w-xl">
-        <h1 className="text-2xl font-bold mb-4 text-gray-800">ChronoGraph</h1>
+    <main className="technical-shell">
+      {/* Background system grid */}
+      <div className="tech-grid" />
+      <div className="tech-glow tech-glow-one" />
+      <div className="tech-glow tech-glow-two" />
 
-        <div className="bg-white rounded-lg shadow p-4 mb-4 min-h-[400px] flex flex-col gap-4">
-          {messages.length === 0 && (
-            <p className="text-gray-400 text-sm">
-              Ask something like: &quot;Why did we switch from AWS to GCP?&quot;
+      {/* Decorative graph network */}
+      <div className="network-layer" aria-hidden="true">
+        <span className="network-node node-one" />
+        <span className="network-node node-two" />
+        <span className="network-node node-three" />
+        <span className="network-node node-four" />
+        <span className="network-node node-five" />
+
+        <span className="network-line line-one" />
+        <span className="network-line line-two" />
+        <span className="network-line line-three" />
+        <span className="network-line line-four" />
+        <span className="network-line line-five" />
+      </div>
+
+      {/* Header */}
+      <header className="landing-header">
+        <Link href="/" className="brand">
+          <span className="brand-mark">
+            <span />
+            <span />
+            <span />
+          </span>
+
+          <span>
+            <strong>CHRONOGRAPH</strong>
+            <small>TEMPORAL GRAPHRAG ENGINE</small>
+          </span>
+        </Link>
+
+        <div className="system-status">
+          <span className="status-dot" />
+          SYSTEM ONLINE
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="hero-section">
+        <div className="hero-content">
+          <div className="terminal-label">
+            <span>&gt; INITIALIZING TEMPORAL INTELLIGENCE</span>
+            <span className="cursor">_</span>
+          </div>
+
+          <p className="hero-eyebrow">
+            EVIDENCE-DRIVEN ENTERPRISE FORENSICS
+          </p>
+
+          <h1>
+            UNDERSTAND
+            <br />
+            THE <span>PAST.</span>
+          </h1>
+
+          <p className="hero-description">
+            ChronoGraph is a Temporal GraphRAG system designed to
+            connect people, technologies, decisions, reasons and
+            events across time — turning fragmented evidence into
+            explainable intelligence.
+          </p>
+
+          <div className="hero-actions">
+            <Link href="/dashboard" className="enter-button">
+              <span>ENTER SYSTEM</span>
+              <span className="arrow">→</span>
+            </Link>
+
+            <a href="#architecture" className="architecture-button">
+              VIEW ARCHITECTURE
+            </a>
+          </div>
+
+          <div className="hero-meta">
+            <span>GRAPH-RAG</span>
+            <span>NEO4J</span>
+            <span>GROQ LLM</span>
+            <span>TEMPORAL RETRIEVAL</span>
+          </div>
+        </div>
+
+        {/* Hero telemetry */}
+        <div className="telemetry-panel">
+          <div className="telemetry-header">
+            <span>SYSTEM TELEMETRY</span>
+            <span className="telemetry-live">LIVE</span>
+          </div>
+
+          <div className="telemetry-row">
+            <span>ENGINE</span>
+            <strong>TEMPORAL-GRAPHRAG</strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>GRAPH DATABASE</span>
+            <strong>NEO4J / ONLINE</strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>LLM ENGINE</span>
+            <strong>GROQ</strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>QUERY LANGUAGE</span>
+            <strong>CYPHER</strong>
+          </div>
+
+          <div className="telemetry-row">
+            <span>API</span>
+            <strong>FASTAPI / READY</strong>
+          </div>
+
+          <div className="telemetry-divider" />
+
+          <div className="telemetry-mini-grid">
+            <div>
+              <span>NODES</span>
+              <strong>65+</strong>
+            </div>
+
+            <div>
+              <span>RELATIONS</span>
+              <strong>121+</strong>
+            </div>
+
+            <div>
+              <span>ENTITIES</span>
+              <strong>04</strong>
+            </div>
+
+            <div>
+              <span>MODE</span>
+              <strong>LIVE</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* What is ChronoGraph */}
+      <section className="intro-section">
+        <div className="section-label">
+          <span>01</span>
+          SYSTEM OVERVIEW
+        </div>
+
+        <div className="intro-grid">
+          <div>
+            <h2>
+              FROM DOCUMENTS
+              <br />
+              TO <span>RELATIONSHIPS.</span>
+            </h2>
+          </div>
+
+          <div className="intro-copy">
+            <p>
+              Traditional document retrieval can find relevant
+              text. ChronoGraph goes further by modeling the
+              relationships between the entities inside that
+              evidence.
             </p>
-          )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={msg.role === "user" ? "self-end max-w-[80%]" : "self-start max-w-[80%]"}
-            >
-              <div
-                className={
-                  msg.role === "user"
-                    ? "bg-blue-600 text-white rounded-lg px-4 py-2"
-                    : "bg-gray-100 text-gray-800 rounded-lg px-4 py-2"
-                }
-              >
-                {msg.content}
+            <p>
+              A question can therefore be investigated through
+              people, technologies, reasons, metrics and the
+              timeline connecting them.
+            </p>
+
+            <div className="graph-chain">
+              <span>PERSON</span>
+              <b>→</b>
+              <span>TECHNOLOGY</span>
+              <b>→</b>
+              <span>REASON</span>
+              <b>→</b>
+              <span>METRIC</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Architecture */}
+      <section
+        id="architecture"
+        className="architecture-section"
+      >
+        <div className="section-label">
+          <span>02</span>
+          PROCESS ARCHITECTURE
+        </div>
+
+        <div className="section-heading">
+          <h2>
+            HOW THE
+            <br />
+            <span>ENGINE WORKS.</span>
+          </h2>
+
+          <p>
+            A question travels through multiple layers before
+            becoming an evidence-backed answer.
+          </p>
+        </div>
+
+        <div className="architecture-grid">
+          {architecture.map((item) => (
+            <div className="architecture-card" key={item.number}>
+              <div className="card-number">{item.number}</div>
+
+              <div className="card-connector">
+                <span />
               </div>
 
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-2 text-xs text-gray-500 space-y-1">
-                  {msg.citations.map((c) => (
-                    <div key={c.marker}>
-                      [{c.marker}] {c.timestamp} — {c.source_id}: &quot;{c.excerpt}&quot;
-                    </div>
-                  ))}
-                </div>
-              )}
+              <h3>{item.title}</h3>
 
-              {msg.role === "assistant" && messages[i - 1] && (
-                <NaiveCompare question={messages[i - 1].content} />
-              )}
+              <p>{item.description}</p>
             </div>
           ))}
-
-          {loading && <p className="text-gray-400 text-sm">Thinking...</p>}
         </div>
 
-        <div className="flex gap-2">
-          <input
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Ask about your team's history..."
-          />
-          <button
-            onClick={sendMessage}
-            disabled={loading}
-            className="bg-blue-600 text-white rounded-lg px-6 py-2 disabled:opacity-50"
-          >
-            Send
-          </button>
+        <div className="pipeline">
+          <span>QUESTION</span>
+          <b>→</b>
+          <span>REWRITE</span>
+          <b>→</b>
+          <span>CYPHER</span>
+          <b>→</b>
+          <span>NEO4J</span>
+          <b>→</b>
+          <span>EVIDENCE</span>
+          <b>→</b>
+          <span>NARRATIVE</span>
         </div>
-      </div>
+      </section>
 
-      <div className="flex-1">
-        <h2 className="text-sm font-semibold text-gray-500 mb-2">GRAPH VIEW</h2>
-        <GraphView nodes={graphData.nodes} edges={graphData.edges} />
-      </div>
+      {/* Technical capabilities */}
+      <section className="capabilities-section">
+        <div className="section-label">
+          <span>03</span>
+          SYSTEM CAPABILITIES
+        </div>
+
+        <div className="capabilities-grid">
+          <div className="capability">
+            <span className="capability-index">A</span>
+            <h3>TEMPORAL REASONING</h3>
+            <p>
+              Examine how relationships and decisions evolve
+              across historical events.
+            </p>
+          </div>
+
+          <div className="capability">
+            <span className="capability-index">B</span>
+            <h3>GRAPH RETRIEVAL</h3>
+            <p>
+              Navigate connected evidence rather than treating
+              every document as an isolated source.
+            </p>
+          </div>
+
+          <div className="capability">
+            <span className="capability-index">C</span>
+            <h3>EVIDENCE CITATIONS</h3>
+            <p>
+              Answers are accompanied by source identifiers,
+              timestamps and supporting excerpts.
+            </p>
+          </div>
+
+          <div className="capability">
+            <span className="capability-index">D</span>
+            <h3>GRAPH VISUALIZATION</h3>
+            <p>
+              Explore the returned relationships through an
+              interactive temporal graph.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Technology stack */}
+      <section className="stack-section">
+        <div className="section-label">
+          <span>04</span>
+          TECHNOLOGY STACK
+        </div>
+
+        <div className="stack-grid">
+          {technologies.map((technology, index) => (
+            <div className="stack-item" key={technology}>
+              <span>0{index + 1}</span>
+              {technology}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="cta-section">
+        <div className="cta-terminal">
+          <span>&gt; SYSTEM READY</span>
+          <span className="cursor">_</span>
+        </div>
+
+        <h2>
+          READY TO
+          <br />
+          <span>INVESTIGATE?</span>
+        </h2>
+
+        <p>
+          Query the temporal knowledge graph and explore the
+          evidence behind enterprise decisions.
+        </p>
+
+        <Link href="/dashboard" className="enter-button large">
+          <span>OPEN CHRONOGRAPH</span>
+          <span className="arrow">→</span>
+        </Link>
+      </section>
+
+      {/* Footer */}
+      <footer className="landing-footer">
+        <span>CHRONOGRAPH / TEMPORAL GRAPHRAG</span>
+
+        <span>
+          NEO4J · GROQ · FASTAPI · NEXT.JS
+        </span>
+
+        <span>v1.0</span>
+      </footer>
     </main>
   );
 }

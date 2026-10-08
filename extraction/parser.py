@@ -5,68 +5,234 @@ class ExtractionError(Exception):
     pass
 
 
-ALLOWED_RELATIONS = {
-    "ADVOCATED_FOR", "ARGUED_AGAINST", "PROPOSED",
-    "COMMITTED_CODE", "BLOCKED", "RESOLVED",
+ALLOWED_ENTITY_TYPES = {
+    "Person",
+    "Technology",
+    "Reason",
+    "Metric",
 }
-ALLOWED_ENTITY_TYPES = {"Person", "Technology"}
 
 
-def parse_extraction(raw_model_output: str) -> list[dict]:
-    raw = raw_model_output.strip()
+ALLOWED_RELATIONS = {
+    "SUPPORTED": ("Person", "Technology"),
+    "OPPOSED": ("Person", "Technology"),
+    "PROPOSED": ("Person", "Technology"),
+    "EVALUATED": ("Person", "Technology"),
+    "TESTED": ("Person", "Technology"),
+    "COMMITTED_CODE": ("Person", "Technology"),
+    "BLOCKED": ("Person", "Technology"),
+    "RESOLVED": ("Person", "Technology"),
 
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
+    "HAS_ADVANTAGE": ("Technology", "Reason"),
+    "HAS_DISADVANTAGE": ("Technology", "Reason"),
+    "HAS_RISK": ("Technology", "Reason"),
+    "HAS_BENEFIT": ("Technology", "Reason"),
+
+    "HAS_METRIC": ("Technology", "Metric"),
+
+    "ALTERNATIVE_TO": ("Technology", "Technology"),
+    "DEPENDS_ON": ("Technology", "Technology"),
+}
+
+
+REQUIRED_FIELDS = {
+    "subject",
+    "subject_type",
+    "object",
+    "object_type",
+    "raw_excerpt",
+    "confidence",
+}
+
+
+def parse_extraction(raw_output: str) -> list[dict]:
+    """
+    Parse and validate the JSON returned by the LLM.
+
+    Accepts either:
+
+        {"triples": [...]}
+
+    or:
+
+        [...]
+
+    The LLM uses the field name `predicate`.
+    Internally we normalize it to `relation`.
+    """
 
     try:
-        parsed = json.loads(raw)
+        data = json.loads(raw_output)
     except json.JSONDecodeError as e:
-        raise ExtractionError(f"Model output was not valid JSON: {e} -- raw: {raw[:200]}")
+        raise ExtractionError(
+            f"Invalid JSON: {e}"
+        ) from e
 
-    if isinstance(parsed, dict) and "triples" in parsed:
-        items = parsed["triples"]
-    elif isinstance(parsed, list):
-        items = parsed
+    # Accept {"triples": [...]} format
+    if isinstance(data, dict):
+        if "triples" not in data:
+            raise ExtractionError(
+                "JSON object missing 'triples' field"
+            )
+
+        triples = data["triples"]
+
+    # Also accept direct [...]
+    elif isinstance(data, list):
+        triples = data
+
     else:
-        raise ExtractionError(f"Unexpected JSON shape (no 'triples' key, not a list): {raw[:200]}")
+        raise ExtractionError(
+            "Extraction output must be a JSON object or list"
+        )
 
-    valid = []
-    for item in items:
+    if not isinstance(triples, list):
+        raise ExtractionError(
+            "'triples' must be a list"
+        )
+
+    validated = []
+
+    for index, triple in enumerate(triples):
+
+        if not isinstance(triple, dict):
+            raise ExtractionError(
+                f"Triple {index} must be an object"
+            )
+
+        # -------------------------------------------------
+        # Required fields
+        # -------------------------------------------------
+
+        missing = REQUIRED_FIELDS - set(triple.keys())
+
+        if missing:
+            missing_field = sorted(missing)[0]
+
+            raise ExtractionError(
+                f"Triple {index} missing field: {missing_field}"
+            )
+
+        # -------------------------------------------------
+        # predicate / relation
+        # -------------------------------------------------
+
+        predicate = triple.get("predicate")
+
+        # Also support relation if an older prompt produces it.
+        if predicate is None:
+            predicate = triple.get("relation")
+
+        if not predicate:
+            raise ExtractionError(
+                f"Triple {index} missing field: predicate"
+            )
+
+        predicate = str(predicate).strip().upper()
+
+        if predicate not in ALLOWED_RELATIONS:
+            raise ExtractionError(
+                f"Triple {index} has invalid relation: {predicate}"
+            )
+
+        # -------------------------------------------------
+        # Entity types
+        # -------------------------------------------------
+
+        subject_type = triple["subject_type"]
+        object_type = triple["object_type"]
+
+        if subject_type not in ALLOWED_ENTITY_TYPES:
+            raise ExtractionError(
+                f"Triple {index} has invalid subject_type: "
+                f"{subject_type}"
+            )
+
+        if object_type not in ALLOWED_ENTITY_TYPES:
+            raise ExtractionError(
+                f"Triple {index} has invalid object_type: "
+                f"{object_type}"
+            )
+
+        # -------------------------------------------------
+        # Relation schema
+        # -------------------------------------------------
+
+        expected_subject_type, expected_object_type = (
+            ALLOWED_RELATIONS[predicate]
+        )
+
+        if subject_type != expected_subject_type:
+            raise ExtractionError(
+                f"Triple {index} relation {predicate} requires "
+                f"subject_type={expected_subject_type}, "
+                f"got {subject_type}"
+            )
+
+        if object_type != expected_object_type:
+            raise ExtractionError(
+                f"Triple {index} relation {predicate} requires "
+                f"object_type={expected_object_type}, "
+                f"got {object_type}"
+            )
+
+        # -------------------------------------------------
+        # Values
+        # -------------------------------------------------
+
+        subject = str(triple["subject"]).strip()
+        object_name = str(triple["object"]).strip()
+        raw_excerpt = str(triple["raw_excerpt"]).strip()
+
+        if not subject:
+            raise ExtractionError(
+                f"Triple {index} has empty subject"
+            )
+
+        if not object_name:
+            raise ExtractionError(
+                f"Triple {index} has empty object"
+            )
+
+        if not raw_excerpt:
+            raise ExtractionError(
+                f"Triple {index} has empty raw_excerpt"
+            )
+
+        # -------------------------------------------------
+        # Confidence
+        # -------------------------------------------------
+
         try:
-            subject_type = item["subject_type"]
-            object_type = item["object_type"]
-            predicate = item["predicate"]
+            confidence = float(triple["confidence"])
+        except (TypeError, ValueError) as e:
+            raise ExtractionError(
+                f"Triple {index} has invalid confidence"
+            ) from e
 
-            if subject_type not in ALLOWED_ENTITY_TYPES:
-                raise ValueError(f"bad subject_type: {subject_type}")
-            if object_type not in ALLOWED_ENTITY_TYPES:
-                raise ValueError(f"bad object_type: {object_type}")
-            if predicate not in ALLOWED_RELATIONS:
-                raise ValueError(f"bad predicate: {predicate}")
-            if subject_type != "Person":
-                raise ValueError(
-                    f"subject_type must be Person for action relations, got {subject_type}"
-                )
-            if object_type != "Technology":
-                raise ValueError(
-                    f"object_type must be Technology, got {object_type}"
-                )
-            if not item.get("raw_excerpt"):
-                raise ValueError("missing raw_excerpt — refusing ungrounded triple")
+        if not 0 <= confidence <= 1:
+            raise ExtractionError(
+                f"Triple {index} confidence must be between 0 and 1"
+            )
 
-            valid.append({
-                "subject": item["subject"],
-                "subject_type": subject_type,
-                "predicate": predicate,
-                "object": item["object"],
-                "object_type": object_type,
-                "raw_excerpt": item["raw_excerpt"][:280],
-                "confidence": float(item.get("confidence", 0.7)),
-            })
-        except (KeyError, ValueError, TypeError) as e:
-            print(f"  [skipped malformed triple] {item} -- {e}")
+        # -------------------------------------------------
+        # Normalize output
+        # -------------------------------------------------
 
-    return valid
+        normalized = {
+            "subject": subject,
+            "subject_type": subject_type,
+            "relation": predicate,
+            "object": object_name,
+            "object_type": object_type,
+            "raw_excerpt": raw_excerpt,
+            "confidence": confidence,
+        }
+
+        # Preserve optional source_id if present
+        if "source_id" in triple:
+            normalized["source_id"] = triple["source_id"]
+
+        validated.append(normalized)
+
+    return validated

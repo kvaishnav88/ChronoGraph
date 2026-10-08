@@ -1,9 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    question: str
-    session_id: str = "default"
+    question: str = Field(..., min_length=1, max_length=2000)
+    session_id: str = Field(
+        default="default",
+        min_length=1,
+        max_length=100,
+    )
 
 
 class Citation(BaseModel):
@@ -18,7 +22,6 @@ class GraphNode(BaseModel):
     label: str
     type: str  # "Person" or "Technology"
 
-
 class GraphEdge(BaseModel):
     source: str
     target: str
@@ -32,6 +35,7 @@ class ChatResponse(BaseModel):
     session_id: str
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
 
 class NaiveResult(BaseModel):
     author: str

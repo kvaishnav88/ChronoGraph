@@ -1,53 +1,210 @@
 """
-Deterministic cleanup applied AFTER the LLM extraction step, as a safety
-net for failure patterns prompt tuning alone couldn't fully eliminate.
+Normalization and schema validation for ChronoGraph triples.
 """
 
-CANONICAL_TECH_PREFIXES = ["GCP", "AWS", "EKS", "Terraform", "Kubernetes"]
+CANONICAL_TECHNOLOGIES = {
+    "aws": "AWS",
+    "gcp": "GCP",
+    "azure": "Azure",
+    "kubernetes": "Kubernetes",
+    "eks": "EKS",
+    "terraform": "Terraform",
+}
+
+VALID_RELATIONS = {
+    "SUPPORTED",
+    "OPPOSED",
+    "PROPOSED",
+    "EVALUATED",
+    "TESTED",
+    "COMMITTED_CODE",
+    "BLOCKED",
+    "RESOLVED",
+    "HAS_ADVANTAGE",
+    "HAS_DISADVANTAGE",
+    "HAS_RISK",
+    "HAS_BENEFIT",
+    "HAS_METRIC",
+    "ALTERNATIVE_TO",
+    "DEPENDS_ON",
+}
 
 
-def _canonicalize_technology(name: str) -> str:
-    stripped = name.strip()
-    for canon in CANONICAL_TECH_PREFIXES:
-        if stripped.lower().startswith(canon.lower()):
-            return canon
-    return stripped
+def canonicalize_technology(name: str) -> str:
+    """Convert technology names into one canonical form."""
+
+    cleaned = name.strip()
+
+    key = cleaned.lower()
+
+    if key in CANONICAL_TECHNOLOGIES:
+        return CANONICAL_TECHNOLOGIES[key]
+
+    for tech in CANONICAL_TECHNOLOGIES:
+        if key.startswith(tech):
+            return CANONICAL_TECHNOLOGIES[tech]
+
+    return cleaned
 
 
 def normalize_triples(triples: list[dict]) -> list[dict]:
+    """
+    Normalize triples returned by Groq.
+
+    Supports both:
+        predicate
+    and:
+        relation
+    """
+
     normalized = []
-    for t in triples:
-        subject, obj = t["subject"], t["object"]
 
-        if t["subject_type"] == "Technology":
-            subject = _canonicalize_technology(subject)
-        if t["object_type"] == "Technology":
-            obj = _canonicalize_technology(obj)
+    for triple in triples:
 
-        if subject.strip().lower() == obj.strip().lower():
-            print(f"  [dropped self-referential triple] {t['subject']} {t['predicate']} {t['object']}")
+        # Accept either parser style
+        relation = (
+            triple.get("relation")
+            or triple.get("predicate")
+        )
+
+        if relation is None:
+            print(
+                f"  [dropped invalid relation] "
+                f"{triple.get('subject')} None {triple.get('object')}"
+            )
             continue
 
-        normalized.append({**t, "subject": subject, "object": obj})
+        relation = relation.strip().upper()
+
+        if relation not in VALID_RELATIONS:
+            print(
+                f"  [dropped invalid relation] "
+                f"{triple.get('subject')} {relation} {triple.get('object')}"
+            )
+            continue
+
+        subject = triple["subject"].strip()
+        object_name = triple["object"].strip()
+
+        subject_type = triple["subject_type"]
+        object_type = triple["object_type"]
+
+        # Normalize technologies
+        if subject_type == "Technology":
+            subject = canonicalize_technology(subject)
+
+        if object_type == "Technology":
+            object_name = canonicalize_technology(object_name)
+
+        # Remove self relationships
+        if (
+            subject_type == object_type
+            and subject.lower() == object_name.lower()
+        ):
+            print(
+                f"  [dropped self relationship] "
+                f"{subject} {relation} {object_name}"
+            )
+            continue
+
+        normalized.append(
+            {
+                "subject": subject,
+                "subject_type": subject_type,
+                "relation": relation,
+                "object": object_name,
+                "object_type": object_type,
+                "raw_excerpt": triple["raw_excerpt"],
+                "confidence": triple["confidence"],
+            }
+        )
 
     return normalized
 
-VALID_SUBJECT_TYPE = "Person"
 
+def enforce_schema(triples: list[dict]) -> list[dict]:
+    """
+    Ensure every triple follows the graph schema.
+    """
 
-def enforce_person_subject(triples: list[dict]) -> list[dict]:
-    """
-    Every relation in our schema only makes sense with a Person as the
-    subject ((Person)-[RELATION]->(Technology)). Drop anything where a
-    Technology (or anything else) is acting as the subject.
-    """
     valid = []
-    for t in triples:
-        if t["subject_type"] != VALID_SUBJECT_TYPE:
-            print(
-                f"  [dropped invalid subject type] "
-                f"{t['subject']} ({t['subject_type']}) {t['predicate']} {t['object']}"
-            )
-            continue
-        valid.append(t)
+
+    for triple in triples:
+
+        relation = triple["relation"]
+
+        subject_type = triple["subject_type"]
+        object_type = triple["object_type"]
+
+        # Person → Technology relations
+        if relation in {
+            "SUPPORTED",
+            "OPPOSED",
+            "PROPOSED",
+            "EVALUATED",
+            "TESTED",
+            "COMMITTED_CODE",
+            "BLOCKED",
+            "RESOLVED",
+        }:
+
+            if subject_type != "Person":
+                print(
+                    f"  [dropped invalid subject] "
+                    f"{triple['subject']} ({subject_type})"
+                )
+                continue
+
+            if object_type != "Technology":
+                print(
+                    f"  [dropped invalid object] "
+                    f"{triple['object']} ({object_type})"
+                )
+                continue
+
+        # Technology → Reason
+        elif relation in {
+            "HAS_ADVANTAGE",
+            "HAS_DISADVANTAGE",
+            "HAS_RISK",
+            "HAS_BENEFIT",
+        }:
+
+            if subject_type != "Technology":
+                print(
+                    f"  [dropped invalid technology subject] "
+                    f"{triple['subject']}"
+                )
+                continue
+
+            if object_type != "Reason":
+                print(
+                    f"  [dropped invalid reason object] "
+                    f"{triple['object']}"
+                )
+                continue
+
+        # Technology → Metric
+        elif relation == "HAS_METRIC":
+
+            if subject_type != "Technology":
+                continue
+
+            if object_type != "Metric":
+                continue
+
+        # Technology ↔ Technology
+        elif relation in {
+            "ALTERNATIVE_TO",
+            "DEPENDS_ON",
+        }:
+
+            if subject_type != "Technology":
+                continue
+
+            if object_type != "Technology":
+                continue
+
+        valid.append(triple)
+
     return valid
