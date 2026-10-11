@@ -1,4 +1,5 @@
 import os
+import re
 
 from fastapi import Depends, FastAPI, HTTPException
 from api.limits import chat_guard
@@ -280,6 +281,41 @@ def normalize_citations(citations):
     return normalized
 
 
+CITATION_MARKER = re.compile(r"\[E(\d+)\]")
+
+
+def build_citations(answer: str, records: list[dict]) -> list[Citation]:
+    """
+    Build Citation objects for the [E#] markers used in the answer.
+
+    Marker E{n} refers to the n-th retrieved record, which is how
+    rag/narrative.py numbers the evidence it shows the model.
+    """
+    used = sorted({int(n) for n in CITATION_MARKER.findall(answer or "")})
+    citations = []
+
+    for n in used:
+        if not 1 <= n <= len(records):
+            continue
+
+        record = records[n - 1]
+        excerpt = record.get("excerpt") or record.get("raw_excerpt") or ""
+
+        try:
+            citations.append(
+                Citation(
+                    marker=n,
+                    source_id=str(record.get("source_id") or ""),
+                    timestamp=str(record.get("timestamp") or ""),
+                    excerpt=str(excerpt)[:400],
+                )
+            )
+        except Exception:
+            continue
+
+    return citations
+
+
 # ---------------------------------------------------------
 # CHAT
 # ---------------------------------------------------------
@@ -327,10 +363,7 @@ def chat(req: ChatRequest):
 
         if is_summary_question(question):
 
-            result = generate_graph_summary(
-                question,
-                records,
-            )
+            result = generate_graph_summary(records)
 
         else:
 
@@ -347,10 +380,10 @@ def chat(req: ChatRequest):
             result
         )
 
-        citations = normalize_citations(
-            raw_citations
+        citations = (
+            normalize_citations(raw_citations)
+            or build_citations(answer, records)
         )
-
         # ---------------------------------------------
         # Build graph for frontend
         # ---------------------------------------------
@@ -427,7 +460,7 @@ def chat(req: ChatRequest):
 
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error: {e}",
+            detail="Internal server error",
         )
 
 
